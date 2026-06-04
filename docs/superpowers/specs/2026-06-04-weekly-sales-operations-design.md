@@ -188,6 +188,27 @@ impact. A modified row is visibly marked until the week is saved.
 On mobile, the operations table becomes horizontally scrollable and the
 expanded daily inputs wrap into a compact grid.
 
+### Input UX
+
+The daily-entry interaction is optimized for operators entering many numbers:
+
+- Expanding a row focuses the first daily input.
+- Focusing a daily input selects its current value for immediate replacement.
+- `Tab` and `Shift+Tab` move naturally through the seven daily inputs.
+- Pressing `Enter` in a daily input moves to the same day in the next visible
+  SKU row, expanding that row when needed.
+- Pasting seven tab-, comma-, space-, or newline-separated integers into the
+  first daily input fills Monday through Sunday.
+- Invalid pasted values are rejected without partially modifying the row.
+- Modified rows receive a visible unsaved marker.
+- A sticky save bar shows the number of modified SKUs and provides Save and
+  Discard actions.
+- Leaving the page with unsaved changes prompts the operator.
+- Server validation and insufficient-stock errors expand and focus the affected
+  SKU row while preserving all entered quantities.
+- Saving disables editing, shows progress, and refreshes stock and operating
+  metrics only after the transaction succeeds.
+
 ## Daily Aggregate Orders
 
 Existing orders remain the source of truth for sales and inventory planning.
@@ -315,6 +336,8 @@ Verify:
 
 - Desktop layout and wide-table horizontal scrolling.
 - Mobile layout and expanded daily-entry grid.
+- Keyboard-only daily entry, seven-value paste, dirty-state save bar, and
+  validation-error focus behavior.
 - Navigation active state.
 - Empty, loading, saved, modified, replenishment, and validation-error states.
 - No browser console errors.
