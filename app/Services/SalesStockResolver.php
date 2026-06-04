@@ -68,6 +68,7 @@ final class SalesStockResolver
         $variantIds = array_values(array_unique(array_filter(
             array_map(fn (array $item) => $item['product_variant_id'] ?? null, $items)
         )));
+        sort($variantIds);
         $variants = collect();
         if ($variantIds !== []) {
             $variantQuery = ProductVariant::whereIn('id', $variantIds)

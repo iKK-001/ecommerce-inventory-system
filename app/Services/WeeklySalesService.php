@@ -1,0 +1,393 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services;
+
+use App\Exceptions\InsufficientStockException;
+use App\Exceptions\InvalidOrderItemException;
+use App\Models\Auth\Organization;
+use App\Models\Inventory\Product;
+use App\Models\Inventory\ProductVariant;
+use App\Models\Inventory\StockAdjustment;
+use App\Models\Order\Order;
+use App\Models\User;
+use App\Support\Money;
+use App\Support\SequenceNumberRetry;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
+
+/**
+ * Reconcile one week of manually entered TikTok US sales.
+ *
+ * Every represented date maps to one delivered aggregate order. Overwrites
+ * adjust physical inventory by the difference from the saved order items,
+ * preserving ordinary product and kit/component stock behavior.
+ */
+final class WeeklySalesService
+{
+    public const SOURCE = 'tiktok_us_manual';
+
+    public const EXTERNAL_ID_PREFIX = 'tiktok-us-sales:';
+
+    public const CUSTOMER_NAME = 'TikTok US Daily Aggregate';
+
+    public function __construct(private readonly SalesStockResolver $salesStockResolver) {}
+
+    /**
+     * @param  array<int, array{product_id: int, daily_quantities: array<string, int>}>  $sales
+     */
+    public function save(User $user, CarbonImmutable $weekStart, array $sales): void
+    {
+        $weekStart = $weekStart->startOfDay();
+        if (! $weekStart->isMonday()) {
+            throw new InvalidArgumentException('Weekly sales week_start must be a Monday.');
+        }
+        if ($user->organization_id === null) {
+            throw new InvalidArgumentException('Weekly sales require an organization user.');
+        }
+
+        SequenceNumberRetry::create(fn () => DB::transaction(function () use ($user, $weekStart, $sales): void {
+            $organizationId = (int) $user->organization_id;
+            Organization::whereKey($organizationId)->lockForUpdate()->firstOrFail();
+
+            [$dates, $newByDate, $submittedProducts] = $this->normalizeSales(
+                $organizationId,
+                $weekStart,
+                $sales
+            );
+            $existingOrders = $this->loadExistingOrders($organizationId, $dates);
+            $changes = $this->calculateChanges($dates, $newByDate, $existingOrders);
+
+            if ($changes !== []) {
+                $resolved = $this->salesStockResolver->resolve(
+                    $organizationId,
+                    array_map(
+                        fn (array $change): array => [
+                            'product_id' => $change['product_id'],
+                            'quantity' => abs($change['difference']),
+                        ],
+                        $changes
+                    )
+                );
+
+                foreach ($changes as $index => &$change) {
+                    $change['line'] = $resolved['lines'][$index];
+                }
+                unset($change);
+            }
+
+            $ordersByDate = $this->ensureDailyOrders(
+                $user,
+                $dates,
+                $newByDate,
+                $existingOrders
+            );
+
+            $this->applyInventoryChanges($user, $changes, $ordersByDate);
+            $this->replaceDailyOrderItems($dates, $newByDate, $submittedProducts, $ordersByDate);
+        }));
+    }
+
+    /**
+     * @param  array<int, array{product_id: int, daily_quantities: array<string, int>}>  $sales
+     * @return array{
+     *     0: array<int, string>,
+     *     1: array<string, array<int, int>>,
+     *     2: Collection<int, Product>
+     * }
+     */
+    private function normalizeSales(int $organizationId, CarbonImmutable $weekStart, array $sales): array
+    {
+        $dates = [];
+        $newByDate = [];
+        for ($day = 0; $day < 7; $day++) {
+            $date = $weekStart->addDays($day)->toDateString();
+            $dates[] = $date;
+            $newByDate[$date] = [];
+        }
+        $allowedDates = array_fill_keys($dates, true);
+
+        $productIds = [];
+        foreach ($sales as $row) {
+            $productId = (int) ($row['product_id'] ?? 0);
+            if ($productId <= 0 || isset($productIds[$productId])) {
+                throw new InvalidArgumentException('Weekly sales rows require unique product IDs.');
+            }
+            $productIds[$productId] = true;
+
+            foreach (($row['daily_quantities'] ?? []) as $date => $quantity) {
+                if (! isset($allowedDates[$date])) {
+                    throw new InvalidArgumentException("Weekly sales date {$date} is outside the selected week.");
+                }
+                if (filter_var($quantity, FILTER_VALIDATE_INT) === false || (int) $quantity < 0) {
+                    throw new InvalidArgumentException(
+                        "Weekly sales quantity for product {$productId} on {$date} must be a non-negative integer."
+                    );
+                }
+
+                if ((int) $quantity > 0) {
+                    $newByDate[$date][$productId] = (int) $quantity;
+                }
+            }
+        }
+
+        $submittedProducts = Product::query()
+            ->where('organization_id', $organizationId)
+            ->where('is_active', true)
+            ->where('is_sellable', true)
+            ->whereIn('id', array_keys($productIds))
+            ->get()
+            ->keyBy('id');
+
+        foreach (array_keys($productIds) as $productId) {
+            if (! $submittedProducts->has($productId)) {
+                throw new InvalidOrderItemException(
+                    "Product {$productId} is not an active sellable SKU in this organization."
+                );
+            }
+        }
+
+        return [$dates, $newByDate, $submittedProducts];
+    }
+
+    /**
+     * @param  array<int, string>  $dates
+     * @return Collection<string, Order>
+     */
+    private function loadExistingOrders(int $organizationId, array $dates): Collection
+    {
+        $externalIds = array_map(
+            fn (string $date): string => self::EXTERNAL_ID_PREFIX.$date,
+            $dates
+        );
+
+        return Order::withTrashed()
+            ->with('items')
+            ->where('organization_id', $organizationId)
+            ->where('source', self::SOURCE)
+            ->whereIn('external_id', $externalIds)
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('external_id');
+    }
+
+    /**
+     * @param  array<int, string>  $dates
+     * @param  array<string, array<int, int>>  $newByDate
+     * @param  Collection<string, Order>  $existingOrders
+     * @return array<int, array{date: string, product_id: int, difference: int}>
+     */
+    private function calculateChanges(array $dates, array $newByDate, Collection $existingOrders): array
+    {
+        $changes = [];
+
+        foreach ($dates as $date) {
+            $order = $existingOrders->get(self::EXTERNAL_ID_PREFIX.$date);
+            $old = [];
+            if ($order !== null && ! $order->trashed()) {
+                foreach ($order->items as $item) {
+                    if ($item->product_id !== null) {
+                        $old[$item->product_id] = ($old[$item->product_id] ?? 0) + (int) $item->quantity;
+                    }
+                }
+            }
+
+            $productIds = array_unique([...array_keys($old), ...array_keys($newByDate[$date])]);
+            sort($productIds);
+            foreach ($productIds as $productId) {
+                $difference = ($newByDate[$date][$productId] ?? 0) - ($old[$productId] ?? 0);
+                if ($difference !== 0) {
+                    $changes[] = [
+                        'date' => $date,
+                        'product_id' => $productId,
+                        'difference' => $difference,
+                    ];
+                }
+            }
+        }
+
+        return $changes;
+    }
+
+    /**
+     * @param  array<int, string>  $dates
+     * @param  array<string, array<int, int>>  $newByDate
+     * @param  Collection<string, Order>  $existingOrders
+     * @return array<string, Order>
+     */
+    private function ensureDailyOrders(
+        User $user,
+        array $dates,
+        array $newByDate,
+        Collection $existingOrders
+    ): array {
+        $ordersByDate = [];
+        $organizationId = (int) $user->organization_id;
+
+        foreach ($dates as $date) {
+            $externalId = self::EXTERNAL_ID_PREFIX.$date;
+            $order = $existingOrders->get($externalId);
+            $hasSales = $newByDate[$date] !== [];
+
+            if (! $hasSales && ($order === null || $order->trashed())) {
+                continue;
+            }
+
+            if ($order === null) {
+                $order = new Order([
+                    'organization_id' => $organizationId,
+                    'created_by' => $user->id,
+                    'order_number' => Order::generateOrderNumber($organizationId),
+                    'source' => self::SOURCE,
+                    'external_id' => $externalId,
+                ]);
+            } elseif ($order->trashed()) {
+                $order->restore();
+            }
+
+            $representedAt = CarbonImmutable::parse($date, 'UTC');
+            $order->fill([
+                'created_by' => $user->id,
+                'customer_name' => self::CUSTOMER_NAME,
+                'status' => 'delivered',
+                'approval_status' => 'approved',
+                'approved_by' => $user->id,
+                'approved_at' => now(),
+                'subtotal' => 0,
+                'tax' => 0,
+                'shipping' => 0,
+                'total' => 0,
+                'currency' => 'USD',
+                'order_date' => $representedAt,
+                'delivered_at' => $representedAt->endOfDay(),
+                'notes' => 'Manually reconciled TikTok US daily aggregate sales.',
+                'metadata' => [
+                    'channel' => 'TikTok US',
+                    'entry_method' => 'weekly_manual',
+                ],
+            ]);
+            $order->save();
+            $ordersByDate[$date] = $order;
+        }
+
+        return $ordersByDate;
+    }
+
+    /**
+     * @param  array<int, array{
+     *     date: string,
+     *     product_id: int,
+     *     difference: int,
+     *     line: array<string, mixed>
+     * }>  $changes
+     * @param  array<string, Order>  $ordersByDate
+     */
+    private function applyInventoryChanges(User $user, array $changes, array $ordersByDate): void
+    {
+        $restorations = array_values(array_filter(
+            $changes,
+            fn (array $change): bool => $change['difference'] < 0
+        ));
+        $decrements = array_values(array_filter(
+            $changes,
+            fn (array $change): bool => $change['difference'] > 0
+        ));
+        $runningStock = [];
+
+        foreach ([...$restorations, ...$decrements] as $change) {
+            $order = $ordersByDate[$change['date']];
+            foreach ($change['line']['stockTargets'] as $stockTarget) {
+                $key = $stockTarget['key'];
+                $target = $stockTarget['target'];
+                $quantity = (int) $stockTarget['qty'];
+                $before = $runningStock[$key] ?? (int) $target->stock;
+                $adjustmentQuantity = $change['difference'] < 0 ? $quantity : -$quantity;
+                $after = $before + $adjustmentQuantity;
+
+                if ($after < 0) {
+                    $sellableSku = $change['line']['product']->sku ?? $change['line']['product']->name;
+                    throw new InsufficientStockException(
+                        "Insufficient stock for {$sellableSku} on {$change['date']}; "
+                        ."{$stockTarget['label']} has {$before} available and needs {$quantity}."
+                    );
+                }
+
+                $runningStock[$key] = $after;
+                $target->update(['stock' => $after]);
+
+                StockAdjustment::create([
+                    'organization_id' => $user->organization_id,
+                    'product_id' => $target instanceof ProductVariant ? $target->product_id : $target->id,
+                    'product_variant_id' => $target instanceof ProductVariant ? $target->id : null,
+                    'user_id' => $user->id,
+                    'type' => $adjustmentQuantity > 0 ? 'order_cancellation' : 'order_fulfillment',
+                    'quantity_before' => $before,
+                    'quantity_after' => $after,
+                    'adjustment_quantity' => $adjustmentQuantity,
+                    'reason' => "TikTok US weekly sales reconciled for {$change['date']}",
+                    'notes' => "Sellable SKU: {$change['line']['product']->sku}",
+                    'reference_type' => Order::class,
+                    'reference_id' => $order->id,
+                ]);
+            }
+        }
+    }
+
+    /**
+     * @param  array<int, string>  $dates
+     * @param  array<string, array<int, int>>  $newByDate
+     * @param  Collection<int, Product>  $products
+     * @param  array<string, Order>  $ordersByDate
+     */
+    private function replaceDailyOrderItems(
+        array $dates,
+        array $newByDate,
+        Collection $products,
+        array $ordersByDate
+    ): void {
+        foreach ($dates as $date) {
+            $order = $ordersByDate[$date] ?? null;
+            if ($order === null) {
+                continue;
+            }
+
+            if ($newByDate[$date] === []) {
+                $order->delete();
+
+                continue;
+            }
+
+            $subtotal = '0';
+            $rows = [];
+            foreach ($newByDate[$date] as $productId => $quantity) {
+                $product = $products->get($productId);
+                $unitPrice = $product->selling_price ?? $product->price ?? 0;
+                $lineSubtotal = Money::multiply($unitPrice, $quantity);
+                $subtotal = Money::add($subtotal, $lineSubtotal);
+                $rows[] = [
+                    'product_id' => $product->id,
+                    'product_name' => $product->name,
+                    'sku' => $product->sku,
+                    'quantity' => $quantity,
+                    'unit_price' => $unitPrice,
+                    'subtotal' => $lineSubtotal,
+                    'tax' => 0,
+                    'total' => $lineSubtotal,
+                    'metadata' => ['entry_method' => 'weekly_manual'],
+                ];
+            }
+
+            $order->items()->delete();
+            $order->items()->createMany($rows);
+            $order->update([
+                'subtotal' => $subtotal,
+                'tax' => 0,
+                'shipping' => 0,
+                'total' => $subtotal,
+            ]);
+        }
+    }
+}
