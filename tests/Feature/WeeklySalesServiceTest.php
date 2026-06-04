@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Exceptions\InsufficientStockException;
+use App\Exceptions\InvalidOrderItemException;
 use App\Models\Auth\Organization;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\ProductComponent;
@@ -235,6 +236,16 @@ class WeeklySalesServiceTest extends TestCase
                 ->map(fn ($quantity): int => (int) $quantity)
                 ->all()
         );
+    }
+
+    public function test_reconciliation_rejects_variant_tracked_sellable_skus_even_without_sales(): void
+    {
+        $variantTracked = $this->product('VARIANT-TRACKED', 10);
+        $variantTracked->updateQuietly(['has_variants' => true]);
+
+        $this->expectException(InvalidOrderItemException::class);
+
+        $this->save([$this->row($variantTracked)]);
     }
 
     /**

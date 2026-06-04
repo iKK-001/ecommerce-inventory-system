@@ -157,6 +157,7 @@ final class WeeklySalesService
             ->where('organization_id', $organizationId)
             ->where('is_active', true)
             ->where('is_sellable', true)
+            ->where('has_variants', false)
             ->whereIn('id', array_keys($productIds))
             ->get()
             ->keyBy('id');
@@ -164,7 +165,7 @@ final class WeeklySalesService
         foreach (array_keys($productIds) as $productId) {
             if (! $submittedProducts->has($productId)) {
                 throw new InvalidOrderItemException(
-                    "Product {$productId} is not an active sellable SKU in this organization."
+                    "Product {$productId} is not an active supported sellable SKU in this organization."
                 );
             }
         }
