@@ -5,9 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Exceptions\InsufficientStockException;
-use App\Exceptions\InvalidOrderItemException;
 use App\Models\Inventory\Product;
-use App\Models\Inventory\ProductComponent;
 use App\Models\Inventory\ProductVariant;
 use App\Models\Inventory\StockAdjustment;
 use App\Models\Order\Order;
@@ -43,6 +41,8 @@ use Illuminate\Support\Facades\DB;
  */
 final class OrderService
 {
+    public function __construct(private readonly SalesStockResolver $salesStockResolver) {}
+
     /**
      * Create an order with its line items and stock movements.
      *
@@ -70,114 +70,10 @@ final class OrderService
             $orgId = $data['organization_id'];
             $data['order_number'] = Order::generateOrderNumber($orgId);
 
-            // Batch-lock every referenced product (and variant) in single
-            // SELECT ... FOR UPDATE queries so concurrent orders can't race the
-            // read-modify-write on stock.
-            $soldProductIds = array_unique(array_column($data['items'], 'product_id'));
-            $kitComponents = ProductComponent::whereIn('parent_product_id', $soldProductIds)
-                ->get()
-                ->groupBy('parent_product_id');
-            $componentProductIds = $kitComponents
-                ->flatten(1)
-                ->pluck('component_product_id')
-                ->all();
-            $productIds = array_values(array_unique([...$soldProductIds, ...$componentProductIds]));
-            sort($productIds);
-
-            $products = Product::whereIn('id', $productIds)
-                ->where('organization_id', $orgId)
-                ->lockForUpdate()
-                ->get()
-                ->keyBy('id');
-
-            $variantIds = array_values(array_unique(array_filter(
-                array_map(fn ($item) => $item['product_variant_id'] ?? null, $data['items'])
-            )));
-            $variants = $variantIds === []
-                ? collect()
-                : ProductVariant::whereIn('id', $variantIds)
-                    ->where('organization_id', $orgId)
-                    ->lockForUpdate()
-                    ->get()
-                    ->keyBy('id');
-
-            // Resolve the stock targets behind each sellable line. Standard
-            // products and variants have one target; kits expand to their
-            // component products so pack sizes share the same physical stock.
-            $lines = [];
-            foreach ($data['items'] as $item) {
-                $pid = $item['product_id'];
-                if (! $products->has($pid)) {
-                    throw new \Exception("Product not found: {$pid}");
-                }
-                $product = $products[$pid];
-                $variantId = $item['product_variant_id'] ?? null;
-
-                if ($variantId !== null) {
-                    $variant = $variants->get($variantId);
-                    if (! $variant || $variant->product_id !== $product->id) {
-                        throw new InvalidOrderItemException(
-                            "Variant {$variantId} does not belong to product {$product->name}."
-                        );
-                    }
-                    $target = $variant;
-                    $key = "v{$variantId}";
-                    $stockTargets = [[
-                        'target' => $target,
-                        'key' => $key,
-                        'qty' => (int) $item['quantity'],
-                        'label' => $this->lineLabel(compact('product', 'variant')),
-                    ]];
-                } else {
-                    if ($product->has_variants) {
-                        throw new InvalidOrderItemException(
-                            "{$product->name} is sold by variant; each line item needs a product_variant_id."
-                        );
-                    }
-                    $variant = null;
-                    if ($product->isKit()) {
-                        $components = $kitComponents->get($product->id, collect());
-                        if ($components->isEmpty()) {
-                            throw new InvalidOrderItemException(
-                                "{$product->name} is a kit without components."
-                            );
-                        }
-
-                        $stockTargets = $components->map(function (ProductComponent $component) use ($products, $product, $item) {
-                            $target = $products->get($component->component_product_id);
-                            if (! $target) {
-                                throw new InvalidOrderItemException(
-                                    "{$product->name} references a component outside the organization."
-                                );
-                            }
-
-                            $required = (float) $component->quantity * (int) $item['quantity'];
-                            if (floor($required) !== $required) {
-                                throw new InvalidOrderItemException(
-                                    "{$product->name} requires fractional component stock, which is not supported."
-                                );
-                            }
-
-                            return [
-                                'target' => $target,
-                                'key' => "p{$target->id}",
-                                'qty' => (int) $required,
-                                'label' => "{$product->name} component {$target->name}",
-                            ];
-                        })->all();
-                    } else {
-                        $stockTargets = [[
-                            'target' => $product,
-                            'key' => "p{$pid}",
-                            'qty' => (int) $item['quantity'],
-                            'label' => $product->name,
-                        ]];
-                    }
-                }
-
-                $lines[] = compact('item', 'product', 'variant', 'stockTargets')
-                    + ['qty' => (int) $item['quantity']];
-            }
+            // Resolve and lock the physical inventory records behind every
+            // sellable line. Weekly manual sales use the same resolver, so
+            // kits, variants, and standard products cannot drift by channel.
+            $lines = $this->salesStockResolver->resolve($orgId, $data['items'])['lines'];
 
             // Validate availability across ALL lines first. Lines sharing a
             // target (including different kit SKUs backed by the same base
@@ -315,22 +211,5 @@ final class OrderService
         do_action('order_created', $order, $creator);
 
         return $order;
-    }
-
-    /**
-     * Human-readable label for an insufficient-stock message.
-     *
-     * @param  array{product: Product, variant: ?ProductVariant}  $line
-     */
-    private function lineLabel(array $line): string
-    {
-        if ($line['variant'] !== null) {
-            $variant = $line['variant'];
-            $descriptor = $variant->title ?? $variant->sku ?? "variant {$variant->id}";
-
-            return "{$line['product']->name} ({$descriptor})";
-        }
-
-        return $line['product']->name;
     }
 }
