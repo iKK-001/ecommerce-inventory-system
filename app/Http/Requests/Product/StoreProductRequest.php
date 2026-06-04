@@ -32,6 +32,7 @@ final class StoreProductRequest extends FormRequest
             'description' => 'nullable|string',
             'price' => 'required|numeric|min:0',
             'purchase_price' => 'nullable|numeric|min:0',
+            'packaging_cost_cny' => 'nullable|numeric|min:0',
             'currency' => 'required|string|max:3',
             'price_in_currencies' => 'nullable|array',
             'price_in_currencies.*.currency' => 'required|string|max:3',

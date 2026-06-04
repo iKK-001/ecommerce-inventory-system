@@ -24,7 +24,10 @@ const form = useForm({
     order_date: new Date().toISOString().split('T')[0],
     expected_date: '',
     currency: 'USD',
+    shipping_method: '',
     shipping: 0,
+    domestic_freight_cny: 0,
+    first_leg_freight_cny: 0,
     tax: 0,
     notes: '',
     items: [],
@@ -176,6 +179,7 @@ const fieldError = 'mt-1 text-xs text-status-danger';
                             <label for="currency" :class="fieldLabel">{{ t('common.currency') }}</label>
                             <select id="currency" v-model="form.currency" :class="fieldInput">
                                 <option value="USD">{{ t('purchaseOrders.currencies.usd') }}</option>
+                                <option value="CNY">CNY</option>
                                 <option value="EUR">{{ t('purchaseOrders.currencies.eur') }}</option>
                                 <option value="GBP">{{ t('purchaseOrders.currencies.gbp') }}</option>
                                 <option value="CAD">{{ t('purchaseOrders.currencies.cad') }}</option>
@@ -194,6 +198,28 @@ const fieldError = 'mt-1 text-xs text-status-danger';
                             <label for="expected_date" :class="fieldLabel">{{ t('purchaseOrders.create.expectedDelivery') }}</label>
                             <input id="expected_date" v-model="form.expected_date" type="date" :class="fieldInput" />
                             <p v-if="form.errors.expected_date" :class="fieldError">{{ form.errors.expected_date }}</p>
+                        </div>
+
+                        <div>
+                            <label for="shipping_method" :class="fieldLabel">Shipping Method</label>
+                            <select id="shipping_method" v-model="form.shipping_method" :class="fieldInput">
+                                <option value="">Not specified</option>
+                                <option value="air">Air</option>
+                                <option value="sea">Sea</option>
+                            </select>
+                            <p v-if="form.errors.shipping_method" :class="fieldError">{{ form.errors.shipping_method }}</p>
+                        </div>
+
+                        <div>
+                            <label for="domestic_freight_cny" :class="fieldLabel">China Domestic Freight (CNY)</label>
+                            <input id="domestic_freight_cny" v-model.number="form.domestic_freight_cny" type="number" step="0.01" min="0" :class="fieldInput" />
+                            <p v-if="form.errors.domestic_freight_cny" :class="fieldError">{{ form.errors.domestic_freight_cny }}</p>
+                        </div>
+
+                        <div>
+                            <label for="first_leg_freight_cny" :class="fieldLabel">First-leg Freight (CNY)</label>
+                            <input id="first_leg_freight_cny" v-model.number="form.first_leg_freight_cny" type="number" step="0.01" min="0" :class="fieldInput" />
+                            <p v-if="form.errors.first_leg_freight_cny" :class="fieldError">{{ form.errors.first_leg_freight_cny }}</p>
                         </div>
                     </div>
 

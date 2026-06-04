@@ -17,10 +17,15 @@ class ProductControllerTest extends TestCase
     use RefreshDatabase;
 
     protected User $admin;
+
     protected User $member;
+
     protected User $viewOnlyUser;
+
     protected Organization $organization;
+
     protected ProductCategory $category;
+
     protected ProductLocation $location;
 
     protected function setUp(): void
@@ -144,7 +149,7 @@ class ProductControllerTest extends TestCase
     {
         return Product::create(array_merge([
             'organization_id' => $this->organization->id,
-            'sku' => 'TEST-' . uniqid(),
+            'sku' => 'TEST-'.uniqid(),
             'name' => 'Test Product',
             'description' => 'A test product description',
             'price' => 99.99,
@@ -303,6 +308,7 @@ class ProductControllerTest extends TestCase
             'description' => 'A brand new product',
             'price' => 149.99,
             'purchase_price' => 75.00,
+            'packaging_cost_cny' => 3.25,
             'currency' => 'USD',
             'stock' => 50,
             'min_stock' => 5,
@@ -322,6 +328,7 @@ class ProductControllerTest extends TestCase
             'sku' => 'NEW-SKU-001',
             'name' => 'New Product',
             'organization_id' => $this->organization->id,
+            'packaging_cost_cny' => 3.25,
         ]);
     }
 

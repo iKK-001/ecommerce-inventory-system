@@ -58,6 +58,7 @@ const form = useForm({
     sku: props.product.sku,
     price: props.product.price,
     purchase_price: props.product.purchase_price || '',
+    packaging_cost_cny: props.product.packaging_cost_cny || '',
     stock: props.product.stock,
     min_stock: props.product.min_stock,
     reorder_point: props.product.reorder_point || '',
@@ -299,6 +300,13 @@ const fieldError = 'mt-1 text-xs text-status-danger';
                             </div>
                             <p class="mt-1 text-xs text-text-tertiary">{{ t('products.create.purchasePriceHint') }}</p>
                             <p v-if="form.errors.purchase_price" :class="fieldError">{{ form.errors.purchase_price }}</p>
+                        </div>
+
+                        <div>
+                            <label for="packaging_cost_cny" :class="fieldLabel">Packaging Cost (CNY / base unit)</label>
+                            <input id="packaging_cost_cny" v-model="form.packaging_cost_cny" type="number" step="0.0001" min="0" :class="fieldInput" />
+                            <p class="mt-1 text-xs text-text-tertiary">Weighted average product cost is recalculated automatically when CNY purchase orders are received.</p>
+                            <p v-if="form.errors.packaging_cost_cny" :class="fieldError">{{ form.errors.packaging_cost_cny }}</p>
                         </div>
 
                         <!-- Selling Price -->

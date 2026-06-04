@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Exceptions\InsufficientStockException;
 use App\Exceptions\InvalidOrderItemException;
 use App\Models\Inventory\Product;
+use App\Models\Inventory\ProductComponent;
 use App\Models\Inventory\ProductVariant;
 use App\Models\Inventory\StockAdjustment;
 use App\Models\Order\Order;
@@ -72,7 +73,17 @@ final class OrderService
             // Batch-lock every referenced product (and variant) in single
             // SELECT ... FOR UPDATE queries so concurrent orders can't race the
             // read-modify-write on stock.
-            $productIds = array_unique(array_column($data['items'], 'product_id'));
+            $soldProductIds = array_unique(array_column($data['items'], 'product_id'));
+            $kitComponents = ProductComponent::whereIn('parent_product_id', $soldProductIds)
+                ->get()
+                ->groupBy('parent_product_id');
+            $componentProductIds = $kitComponents
+                ->flatten(1)
+                ->pluck('component_product_id')
+                ->all();
+            $productIds = array_values(array_unique([...$soldProductIds, ...$componentProductIds]));
+            sort($productIds);
+
             $products = Product::whereIn('id', $productIds)
                 ->where('organization_id', $orgId)
                 ->lockForUpdate()
@@ -90,9 +101,9 @@ final class OrderService
                     ->get()
                     ->keyBy('id');
 
-            // Resolve each line's stock target once: a specific variant when one
-            // is chosen (validating ownership), otherwise the product itself.
-            // A variant-tracked product requires a variant on every new line.
+            // Resolve the stock targets behind each sellable line. Standard
+            // products and variants have one target; kits expand to their
+            // component products so pack sizes share the same physical stock.
             $lines = [];
             foreach ($data['items'] as $item) {
                 $pid = $item['product_id'];
@@ -111,6 +122,12 @@ final class OrderService
                     }
                     $target = $variant;
                     $key = "v{$variantId}";
+                    $stockTargets = [[
+                        'target' => $target,
+                        'key' => $key,
+                        'qty' => (int) $item['quantity'],
+                        'label' => $this->lineLabel(compact('product', 'variant')),
+                    ]];
                 } else {
                     if ($product->has_variants) {
                         throw new InvalidOrderItemException(
@@ -118,26 +135,65 @@ final class OrderService
                         );
                     }
                     $variant = null;
-                    $target = $product;
-                    $key = "p{$pid}";
+                    if ($product->isKit()) {
+                        $components = $kitComponents->get($product->id, collect());
+                        if ($components->isEmpty()) {
+                            throw new InvalidOrderItemException(
+                                "{$product->name} is a kit without components."
+                            );
+                        }
+
+                        $stockTargets = $components->map(function (ProductComponent $component) use ($products, $product, $item) {
+                            $target = $products->get($component->component_product_id);
+                            if (! $target) {
+                                throw new InvalidOrderItemException(
+                                    "{$product->name} references a component outside the organization."
+                                );
+                            }
+
+                            $required = (float) $component->quantity * (int) $item['quantity'];
+                            if (floor($required) !== $required) {
+                                throw new InvalidOrderItemException(
+                                    "{$product->name} requires fractional component stock, which is not supported."
+                                );
+                            }
+
+                            return [
+                                'target' => $target,
+                                'key' => "p{$target->id}",
+                                'qty' => (int) $required,
+                                'label' => "{$product->name} component {$target->name}",
+                            ];
+                        })->all();
+                    } else {
+                        $stockTargets = [[
+                            'target' => $product,
+                            'key' => "p{$pid}",
+                            'qty' => (int) $item['quantity'],
+                            'label' => $product->name,
+                        ]];
+                    }
                 }
 
-                $lines[] = compact('item', 'product', 'variant', 'target', 'key')
+                $lines[] = compact('item', 'product', 'variant', 'stockTargets')
                     + ['qty' => (int) $item['quantity']];
             }
 
             // Validate availability across ALL lines first. Lines sharing a
-            // target (same product, or same variant) accumulate against one
-            // running balance.
+            // target (including different kit SKUs backed by the same base
+            // product) accumulate against one running balance.
             $running = [];
             foreach ($lines as $line) {
-                $key = $line['key'];
-                $running[$key] = ($running[$key] ?? (int) $line['target']->stock) - $line['qty'];
-                if ($running[$key] < 0) {
-                    throw new InsufficientStockException(
-                        'Insufficient stock for '.$this->lineLabel($line)
-                        .". Available: {$line['target']->stock}, Requested: {$line['qty']}"
-                    );
+                foreach ($line['stockTargets'] as $stockTarget) {
+                    $key = $stockTarget['key'];
+                    $target = $stockTarget['target'];
+                    $running[$key] = ($running[$key] ?? (int) $target->stock) - $stockTarget['qty'];
+                    if ($running[$key] < 0) {
+                        throw new InsufficientStockException(
+                            "Insufficient stock for {$stockTarget['label']}."
+                            ." Available: {$target->stock}, Requested: {$stockTarget['qty']}"
+                        );
+                    }
                 }
             }
 
@@ -158,8 +214,6 @@ final class OrderService
                 $product = $line['product'];
                 $variant = $line['variant'];
                 $qty = $line['qty'];
-                $key = $line['key'];
-                $targets[$key] = $line['target'];
 
                 // unit_price is optional: callers may omit it and fall back to
                 // the variant's own price (when a variant is chosen) or the
@@ -187,27 +241,33 @@ final class OrderService
                     'total' => Money::add($itemSubtotal, $itemTax),
                 ];
 
-                $perTargetQty[$key] = ($perTargetQty[$key] ?? 0) + $qty;
-                $beforeForEntry = $threadStock[$key] ?? (int) $line['target']->stock;
-                $afterForEntry = $beforeForEntry - $qty;
-                $threadStock[$key] = $afterForEntry;
+                foreach ($line['stockTargets'] as $stockTarget) {
+                    $key = $stockTarget['key'];
+                    $target = $stockTarget['target'];
+                    $stockQty = $stockTarget['qty'];
+                    $targets[$key] = $target;
+                    $perTargetQty[$key] = ($perTargetQty[$key] ?? 0) + $stockQty;
+                    $beforeForEntry = $threadStock[$key] ?? (int) $target->stock;
+                    $afterForEntry = $beforeForEntry - $stockQty;
+                    $threadStock[$key] = $afterForEntry;
 
-                $adjustmentRows[] = [
-                    'organization_id' => $orgId,
-                    'product_id' => $product->id,
-                    'product_variant_id' => $variant?->id,
-                    'user_id' => $creator->id,
-                    'type' => 'order_fulfillment',
-                    'quantity_before' => $beforeForEntry,
-                    'quantity_after' => $afterForEntry,
-                    'adjustment_quantity' => -$qty,
-                    'reason' => null,  // set after order_number known
-                    'notes' => null,
-                    'reference_type' => Order::class,
-                    'reference_id' => null,  // set after $order is created
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
+                    $adjustmentRows[] = [
+                        'organization_id' => $orgId,
+                        'product_id' => $target instanceof ProductVariant ? $target->product_id : $target->id,
+                        'product_variant_id' => $target instanceof ProductVariant ? $target->id : null,
+                        'user_id' => $creator->id,
+                        'type' => 'order_fulfillment',
+                        'quantity_before' => $beforeForEntry,
+                        'quantity_after' => $afterForEntry,
+                        'adjustment_quantity' => -$stockQty,
+                        'reason' => null,  // set after order_number known
+                        'notes' => null,
+                        'reference_type' => Order::class,
+                        'reference_id' => null,  // set after $order is created
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ];
+                }
             }
 
             // Order tax = any order-level tax (web) plus the sum of per-line

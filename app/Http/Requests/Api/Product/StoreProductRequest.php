@@ -27,6 +27,7 @@ final class StoreProductRequest extends FormRequest
             'price' => ['nullable', 'numeric', 'min:0'],
             'selling_price' => ['nullable', 'numeric', 'min:0'],
             'purchase_price' => ['nullable', 'numeric', 'min:0'],
+            'packaging_cost_cny' => ['nullable', 'numeric', 'min:0'],
             'currency' => ['nullable', 'string', 'max:3'],
             'stock' => ['nullable', 'integer', 'min:0'],
             'min_stock' => ['nullable', 'integer', 'min:0'],

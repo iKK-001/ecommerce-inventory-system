@@ -10,8 +10,9 @@ use App\Models\Inventory\StockAdjustment;
 use App\Models\Order\Order;
 use App\Models\Order\OrderItem;
 use App\Models\SavedReport;
+use App\Models\Setting;
+use App\Services\InventoryPlanningService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -26,8 +27,6 @@ class ReportController extends Controller
 {
     /**
      * Display the reports dashboard.
-     *
-     * @return Response
      */
     public function index(Request $request): Response
     {
@@ -46,8 +45,7 @@ class ReportController extends Controller
     /**
      * Inventory Valuation Report.
      *
-     * @param Request $request The incoming HTTP request
-     * @return Response
+     * @param  Request  $request  The incoming HTTP request
      */
     public function inventoryValuation(Request $request): Response
     {
@@ -101,8 +99,7 @@ class ReportController extends Controller
     /**
      * Stock Movement Report.
      *
-     * @param Request $request The incoming HTTP request
-     * @return Response
+     * @param  Request  $request  The incoming HTTP request
      */
     public function stockMovement(Request $request): Response
     {
@@ -158,8 +155,7 @@ class ReportController extends Controller
     /**
      * Sales Analysis Report.
      *
-     * @param Request $request The incoming HTTP request
-     * @return Response
+     * @param  Request  $request  The incoming HTTP request
      */
     public function salesAnalysis(Request $request): Response
     {
@@ -169,8 +165,8 @@ class ReportController extends Controller
         // using whereDate so the order_date index can serve the predicate.
         $dateFrom = $request->date_from ?? now()->subDays(30)->format('Y-m-d');
         $dateTo = $request->date_to ?? now()->format('Y-m-d');
-        $fromTimestamp = $dateFrom . ' 00:00:00';
-        $toTimestamp = $dateTo . ' 23:59:59';
+        $fromTimestamp = $dateFrom.' 00:00:00';
+        $toTimestamp = $dateTo.' 23:59:59';
 
         // Each aggregate is its own SQL round-trip — previously the
         // controller hydrated every Order + nested items.product for the
@@ -265,8 +261,7 @@ class ReportController extends Controller
     /**
      * Low Stock Report.
      *
-     * @param Request $request The incoming HTTP request
-     * @return Response
+     * @param  Request  $request  The incoming HTTP request
      */
     public function lowStock(Request $request): Response
     {
@@ -309,10 +304,43 @@ class ReportController extends Controller
     }
 
     /**
+     * Inventory planning report based on recent base-unit demand.
+     */
+    public function inventoryPlanning(Request $request, InventoryPlanningService $service): Response
+    {
+        $organizationId = $request->user()->organization_id;
+        $windowDays = (int) $request->input('window', 7);
+        if (! in_array($windowDays, [7, 14, 30], true)) {
+            $windowDays = 7;
+        }
+
+        $settings = Setting::forOrganization($organizationId)
+            ->whereIn('key', [
+                'inventory.exchange_rate_cny_per_usd',
+                'inventory.low_stock_days',
+            ])
+            ->pluck('value', 'key');
+
+        $exchangeRate = (float) $settings->get('inventory.exchange_rate_cny_per_usd', 7.2);
+        $lowStockDays = (float) $settings->get('inventory.low_stock_days', 21);
+        if ($exchangeRate <= 0) {
+            $exchangeRate = 7.2;
+        }
+
+        return Inertia::render('Reports/InventoryPlanning', [
+            'report' => $service->report(
+                organizationId: $organizationId,
+                windowDays: $windowDays,
+                lowStockDays: $lowStockDays,
+                exchangeRateCnyPerUsd: $exchangeRate,
+            ),
+        ]);
+    }
+
+    /**
      * Category Performance Report.
      *
-     * @param Request $request The incoming HTTP request
-     * @return Response
+     * @param  Request  $request  The incoming HTTP request
      */
     public function categoryPerformance(Request $request): Response
     {
@@ -327,6 +355,7 @@ class ReportController extends Controller
 
         $categoryStats = $products->map(function ($items, $categoryId) {
             $category = $items->first()->category;
+
             return [
                 'category_id' => $categoryId,
                 'category_name' => $category?->name ?? 'Uncategorized',

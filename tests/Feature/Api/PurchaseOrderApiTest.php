@@ -20,9 +20,13 @@ class PurchaseOrderApiTest extends TestCase
     use RefreshDatabase;
 
     protected User $admin;
+
     protected User $viewOnlyUser;
+
     protected Organization $organization;
+
     protected Supplier $supplier;
+
     protected Product $product;
 
     protected function setUp(): void
@@ -123,7 +127,7 @@ class PurchaseOrderApiTest extends TestCase
         return PurchaseOrder::create(array_merge([
             'organization_id' => $this->organization->id,
             'supplier_id' => $this->supplier->id,
-            'po_number' => 'PO-' . uniqid(),
+            'po_number' => 'PO-'.uniqid(),
             'status' => 'draft',
             'order_date' => now()->toDateString(),
             'subtotal' => 500.00,
@@ -181,7 +185,7 @@ class PurchaseOrderApiTest extends TestCase
         $this->createPurchaseOrder(['supplier_id' => $this->supplier->id]);
         $this->createPurchaseOrder(['supplier_id' => $otherSupplier->id]);
 
-        $response = $this->getJson('/api/v1/purchase-orders?supplier_id=' . $this->supplier->id);
+        $response = $this->getJson('/api/v1/purchase-orders?supplier_id='.$this->supplier->id);
 
         $response->assertStatus(200)
             ->assertJsonCount(1, 'data');
@@ -219,7 +223,10 @@ class PurchaseOrderApiTest extends TestCase
             'supplier_id' => $this->supplier->id,
             'order_date' => now()->toDateString(),
             'expected_date' => now()->addDays(7)->format('Y-m-d'),
-            'currency' => 'USD',
+            'currency' => 'CNY',
+            'shipping_method' => 'air',
+            'domestic_freight_cny' => 120.50,
+            'first_leg_freight_cny' => 680.25,
             'notes' => 'Test purchase order',
             'items' => [
                 [
@@ -238,6 +245,10 @@ class PurchaseOrderApiTest extends TestCase
         $this->assertDatabaseHas('purchase_orders', [
             'organization_id' => $this->organization->id,
             'supplier_id' => $this->supplier->id,
+            'currency' => 'CNY',
+            'shipping_method' => 'air',
+            'domestic_freight_cny' => 120.50,
+            'first_leg_freight_cny' => 680.25,
         ]);
     }
 

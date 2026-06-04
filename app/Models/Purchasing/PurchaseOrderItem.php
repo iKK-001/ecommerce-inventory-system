@@ -6,8 +6,10 @@ namespace App\Models\Purchasing;
 
 use App\Models\Inventory\Product;
 use App\Models\Inventory\StockAdjustment;
+use App\Services\InboundReceivingService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 /**
  * Represents an item within a purchase order.
@@ -21,16 +23,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $quantity_ordered
  * @property int $quantity_received
  * @property string $unit_cost
+ * @property string|null $landed_unit_cost_cny
  * @property string $subtotal
  * @property string $tax
  * @property string $total
  * @property string|null $notes
  * @property array|null $metadata
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  * @property-read int $remaining_quantity
- * @property-read \App\Models\Purchasing\PurchaseOrder $purchaseOrder
- * @property-read \App\Models\Inventory\Product|null $product
+ * @property-read PurchaseOrder $purchaseOrder
+ * @property-read Product|null $product
  */
 class PurchaseOrderItem extends Model
 {
@@ -43,6 +46,7 @@ class PurchaseOrderItem extends Model
         'quantity_ordered',
         'quantity_received',
         'unit_cost',
+        'landed_unit_cost_cny',
         'subtotal',
         'tax',
         'total',
@@ -54,6 +58,7 @@ class PurchaseOrderItem extends Model
         'quantity_ordered' => 'integer',
         'quantity_received' => 'integer',
         'unit_cost' => 'decimal:2',
+        'landed_unit_cost_cny' => 'decimal:4',
         'subtotal' => 'decimal:2',
         'tax' => 'decimal:2',
         'total' => 'decimal:2',
@@ -65,7 +70,7 @@ class PurchaseOrderItem extends Model
     /**
      * Get the purchase order this item belongs to.
      *
-     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo<\App\Models\Purchasing\PurchaseOrder, $this>
+     * @return BelongsTo<PurchaseOrder, $this>
      */
     public function purchaseOrder(): BelongsTo
     {
@@ -75,7 +80,7 @@ class PurchaseOrderItem extends Model
     /**
      * Get the product associated with this item.
      *
-     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo<\App\Models\Inventory\Product, $this>
+     * @return BelongsTo<Product, $this>
      */
     public function product(): BelongsTo
     {
@@ -84,8 +89,6 @@ class PurchaseOrderItem extends Model
 
     /**
      * Calculate and set totals based on quantity and unit cost.
-     *
-     * @return void
      */
     public function calculateTotals(): void
     {
@@ -95,8 +98,6 @@ class PurchaseOrderItem extends Model
 
     /**
      * Check if item is fully received.
-     *
-     * @return bool
      */
     public function isFullyReceived(): bool
     {
@@ -105,8 +106,6 @@ class PurchaseOrderItem extends Model
 
     /**
      * Get remaining quantity to receive.
-     *
-     * @return int
      */
     public function getRemainingQuantityAttribute(): int
     {
@@ -118,58 +117,16 @@ class PurchaseOrderItem extends Model
      *
      * Creates a stock adjustment and updates product stock.
      *
-     * @param int $quantity The quantity to receive
-     * @return \App\Models\Inventory\StockAdjustment|null
+     * @param  int  $quantity  The quantity to receive
      */
     public function receive(int $quantity): ?StockAdjustment
     {
-        if ($quantity <= 0) {
-            return null;
-        }
-
-        // Cap the quantity to remaining amount
-        $maxReceivable = $this->remaining_quantity;
-        $quantityToReceive = min($quantity, $maxReceivable);
-
-        if ($quantityToReceive <= 0) {
-            return null;
-        }
-
-        // The product may have been deleted after this PO line was created;
-        // StockAdjustment::adjust() would fatal on a null product. Skip rather
-        // than record a receipt against a non-existent product.
-        if (! $this->product) {
-            return null;
-        }
-
-        // Update received quantity
-        $this->quantity_received += $quantityToReceive;
-        $this->save();
-
-        // Create stock adjustment and update product stock
-        $purchaseOrder = $this->purchaseOrder;
-        $adjustment = StockAdjustment::adjust(
-            product: $this->product,
-            quantity: $quantityToReceive,
-            type: 'purchase',
-            reason: "PO {$purchaseOrder->po_number} received",
-            notes: $this->notes,
-            reference: $purchaseOrder
-        );
-
-        // Update the purchase order status
-        $purchaseOrder->refresh();
-        $purchaseOrder->updateReceivingStatus();
-
-        return $adjustment;
+        return app(InboundReceivingService::class)->receiveItem($this, $quantity);
     }
 
     /**
      * Static method to create item from product.
      *
-     * @param \App\Models\Inventory\Product $product
-     * @param int $quantity
-     * @param float|null $unitCost
      * @return static
      */
     public static function fromProduct(Product $product, int $quantity, ?float $unitCost = null): self

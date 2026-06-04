@@ -35,6 +35,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $currency
  * @property array|null $price_in_currencies
  * @property string|null $purchase_price
+ * @property string $weighted_average_cost_cny
+ * @property string $packaging_cost_cny
  * @property int $stock
  * @property int|null $min_stock
  * @property int|null $max_stock
@@ -87,6 +89,8 @@ class Product extends Model
         'currency',
         'price_in_currencies',
         'purchase_price',
+        'weighted_average_cost_cny',
+        'packaging_cost_cny',
         'stock',
         'min_stock',
         'max_stock',
@@ -116,6 +120,8 @@ class Product extends Model
             'price' => 'decimal:2',
             'selling_price' => 'decimal:2',
             'purchase_price' => 'decimal:2',
+            'weighted_average_cost_cny' => 'decimal:4',
+            'packaging_cost_cny' => 'decimal:4',
             'stock' => 'integer',
             'min_stock' => 'integer',
             'max_stock' => 'integer',

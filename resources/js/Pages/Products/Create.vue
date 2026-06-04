@@ -31,6 +31,7 @@ const form = useForm({
     sku: '',
     price: '',
     purchase_price: '',
+    packaging_cost_cny: '',
     currency: props.defaultCurrency || 'USD',
     price_in_currencies: [],
     stock: '',
@@ -289,6 +290,13 @@ const fieldError = 'mt-1 text-xs text-status-danger';
                             </div>
                             <p class="mt-1 text-xs text-text-tertiary">{{ t('products.create.purchasePriceHint') }}</p>
                             <p v-if="form.errors.purchase_price" :class="fieldError">{{ form.errors.purchase_price }}</p>
+                        </div>
+
+                        <div>
+                            <label for="packaging_cost_cny" :class="fieldLabel">Packaging Cost (CNY / base unit)</label>
+                            <input id="packaging_cost_cny" v-model="form.packaging_cost_cny" type="number" step="0.0001" min="0" :class="fieldInput" />
+                            <p class="mt-1 text-xs text-text-tertiary">Used by the inventory planning report when calculating landed cost.</p>
+                            <p v-if="form.errors.packaging_cost_cny" :class="fieldError">{{ form.errors.packaging_cost_cny }}</p>
                         </div>
 
                         <!-- Selling Price -->
