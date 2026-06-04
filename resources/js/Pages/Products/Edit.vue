@@ -59,6 +59,9 @@ const form = useForm({
     price: props.product.price,
     purchase_price: props.product.purchase_price || '',
     packaging_cost_cny: props.product.packaging_cost_cny || '',
+    last_mile_cost_usd: props.product.last_mile_cost_usd || '',
+    packing_labor_cost_cny: props.product.packing_labor_cost_cny || '',
+    is_sellable: props.product.is_sellable ?? true,
     stock: props.product.stock,
     min_stock: props.product.min_stock,
     reorder_point: props.product.reorder_point || '',
@@ -303,11 +306,33 @@ const fieldError = 'mt-1 text-xs text-status-danger';
                         </div>
 
                         <div>
-                            <label for="packaging_cost_cny" :class="fieldLabel">Packaging Cost (CNY / base unit)</label>
+                            <label for="packaging_cost_cny" :class="fieldLabel">Packaging material cost (CNY / SKU)</label>
                             <input id="packaging_cost_cny" v-model="form.packaging_cost_cny" type="number" step="0.0001" min="0" :class="fieldInput" />
-                            <p class="mt-1 text-xs text-text-tertiary">Weighted average product cost is recalculated automatically when CNY purchase orders are received.</p>
+                            <p class="mt-1 text-xs text-text-tertiary">Material portion of the per-SKU packing cost.</p>
                             <p v-if="form.errors.packaging_cost_cny" :class="fieldError">{{ form.errors.packaging_cost_cny }}</p>
                         </div>
+
+                        <div>
+                            <label for="packing_labor_cost_cny" :class="fieldLabel">Packing labor cost (CNY / SKU)</label>
+                            <input id="packing_labor_cost_cny" v-model="form.packing_labor_cost_cny" type="number" step="0.0001" min="0" :class="fieldInput" />
+                            <p class="mt-1 text-xs text-text-tertiary">Packing cost equals packaging material plus packing labor.</p>
+                            <p v-if="form.errors.packing_labor_cost_cny" :class="fieldError">{{ form.errors.packing_labor_cost_cny }}</p>
+                        </div>
+
+                        <div>
+                            <label for="last_mile_cost_usd" :class="fieldLabel">US last-mile cost (USD / SKU)</label>
+                            <input id="last_mile_cost_usd" v-model="form.last_mile_cost_usd" type="number" step="0.0001" min="0" :class="fieldInput" />
+                            <p class="mt-1 text-xs text-text-tertiary">US delivery or fulfillment cost for one sold SKU.</p>
+                            <p v-if="form.errors.last_mile_cost_usd" :class="fieldError">{{ form.errors.last_mile_cost_usd }}</p>
+                        </div>
+
+                        <label class="flex items-start gap-3 rounded-lg border border-border-subtle bg-surface-canvas p-4">
+                            <input v-model="form.is_sellable" type="checkbox" class="mt-0.5 rounded border-border-strong text-brand focus:ring-brand" />
+                            <span>
+                                <span class="block text-sm font-medium text-text-primary">Sellable SKU</span>
+                                <span class="mt-0.5 block text-xs text-text-tertiary">Show this SKU in TikTok US weekly sales and operating reports.</span>
+                            </span>
+                        </label>
 
                         <!-- Selling Price -->
                         <div>

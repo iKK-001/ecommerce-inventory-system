@@ -309,11 +309,14 @@ class ProductControllerTest extends TestCase
             'price' => 149.99,
             'purchase_price' => 75.00,
             'packaging_cost_cny' => 3.25,
+            'packing_labor_cost_cny' => 1.50,
+            'last_mile_cost_usd' => 2.75,
             'currency' => 'USD',
             'stock' => 50,
             'min_stock' => 5,
             'max_stock' => 200,
             'is_active' => true,
+            'is_sellable' => false,
             'category_id' => $this->category->id,
             'location_id' => $this->location->id,
         ];
@@ -329,6 +332,9 @@ class ProductControllerTest extends TestCase
             'name' => 'New Product',
             'organization_id' => $this->organization->id,
             'packaging_cost_cny' => 3.25,
+            'packing_labor_cost_cny' => 1.50,
+            'last_mile_cost_usd' => 2.75,
+            'is_sellable' => false,
         ]);
     }
 
@@ -554,6 +560,9 @@ class ProductControllerTest extends TestCase
                 'stock' => 75,
                 'min_stock' => 15,
                 'is_active' => true,
+                'is_sellable' => false,
+                'packing_labor_cost_cny' => 1.25,
+                'last_mile_cost_usd' => 3.50,
             ]);
 
         $response->assertRedirect(route('products.index'));
@@ -564,6 +573,9 @@ class ProductControllerTest extends TestCase
             'name' => 'Updated Name',
             'price' => 199.99,
             'stock' => 75,
+            'is_sellable' => false,
+            'packing_labor_cost_cny' => 1.25,
+            'last_mile_cost_usd' => 3.50,
         ]);
     }
 
