@@ -59,7 +59,20 @@ final class WeeklySalesService
                 $sales
             );
             $existingOrders = $this->loadExistingOrders($organizationId, $dates);
-            $changes = $this->calculateChanges($dates, $newByDate, $existingOrders);
+            $submittedProductIds = $submittedProducts->keys()
+                ->map(fn ($productId): int => (int) $productId)
+                ->all();
+            $changes = $this->calculateChanges(
+                $dates,
+                $newByDate,
+                $existingOrders,
+                $submittedProductIds
+            );
+            $preservedByDate = $this->preservedOrderItemRows(
+                $dates,
+                $existingOrders,
+                $submittedProductIds
+            );
 
             if ($changes !== []) {
                 $resolved = $this->salesStockResolver->resolve(
@@ -87,7 +100,13 @@ final class WeeklySalesService
             );
 
             $this->applyInventoryChanges($user, $changes, $ordersByDate);
-            $this->replaceDailyOrderItems($dates, $newByDate, $submittedProducts, $ordersByDate);
+            $this->replaceDailyOrderItems(
+                $dates,
+                $newByDate,
+                $submittedProducts,
+                $ordersByDate,
+                $preservedByDate
+            );
         }));
     }
 
@@ -178,11 +197,17 @@ final class WeeklySalesService
      * @param  array<int, string>  $dates
      * @param  array<string, array<int, int>>  $newByDate
      * @param  Collection<string, Order>  $existingOrders
+     * @param  array<int, int>  $submittedProductIds
      * @return array<int, array{date: string, product_id: int, difference: int}>
      */
-    private function calculateChanges(array $dates, array $newByDate, Collection $existingOrders): array
-    {
+    private function calculateChanges(
+        array $dates,
+        array $newByDate,
+        Collection $existingOrders,
+        array $submittedProductIds
+    ): array {
         $changes = [];
+        sort($submittedProductIds);
 
         foreach ($dates as $date) {
             $order = $existingOrders->get(self::EXTERNAL_ID_PREFIX.$date);
@@ -195,9 +220,7 @@ final class WeeklySalesService
                 }
             }
 
-            $productIds = array_unique([...array_keys($old), ...array_keys($newByDate[$date])]);
-            sort($productIds);
-            foreach ($productIds as $productId) {
+            foreach ($submittedProductIds as $productId) {
                 $difference = ($newByDate[$date][$productId] ?? 0) - ($old[$productId] ?? 0);
                 if ($difference !== 0) {
                     $changes[] = [
@@ -210,6 +233,53 @@ final class WeeklySalesService
         }
 
         return $changes;
+    }
+
+    /**
+     * Preserve active aggregate-order lines that are not represented by the
+     * current page submission, such as a SKU hidden after becoming non-sellable.
+     *
+     * @param  array<int, string>  $dates
+     * @param  Collection<string, Order>  $existingOrders
+     * @param  array<int, int>  $submittedProductIds
+     * @return array<string, array<int, array<string, mixed>>>
+     */
+    private function preservedOrderItemRows(
+        array $dates,
+        Collection $existingOrders,
+        array $submittedProductIds
+    ): array {
+        $submitted = array_fill_keys($submittedProductIds, true);
+        $preservedByDate = [];
+
+        foreach ($dates as $date) {
+            $order = $existingOrders->get(self::EXTERNAL_ID_PREFIX.$date);
+            $preservedByDate[$date] = [];
+            if ($order === null || $order->trashed()) {
+                continue;
+            }
+
+            foreach ($order->items as $item) {
+                if ($item->product_id !== null && isset($submitted[(int) $item->product_id])) {
+                    continue;
+                }
+
+                $preservedByDate[$date][] = [
+                    'product_id' => $item->product_id,
+                    'product_variant_id' => $item->product_variant_id,
+                    'product_name' => $item->product_name,
+                    'sku' => $item->sku,
+                    'quantity' => (int) $item->quantity,
+                    'unit_price' => $item->unit_price,
+                    'subtotal' => $item->subtotal,
+                    'tax' => $item->tax,
+                    'total' => $item->total,
+                    'metadata' => $item->metadata,
+                ];
+            }
+        }
+
+        return $preservedByDate;
     }
 
     /**
@@ -245,7 +315,7 @@ final class WeeklySalesService
                     'external_id' => $externalId,
                 ]);
             } elseif ($order->trashed()) {
-                $order->restore();
+                $order->restoreQuietly();
             }
 
             $representedAt = CarbonImmutable::parse($date, 'UTC');
@@ -269,7 +339,7 @@ final class WeeklySalesService
                     'entry_method' => 'weekly_manual',
                 ],
             ]);
-            $order->save();
+            $order->saveQuietly();
             $ordersByDate[$date] = $order;
         }
 
@@ -316,7 +386,7 @@ final class WeeklySalesService
                 }
 
                 $runningStock[$key] = $after;
-                $target->update(['stock' => $after]);
+                $target->updateQuietly(['stock' => $after]);
 
                 StockAdjustment::create([
                     'organization_id' => $user->organization_id,
@@ -341,12 +411,14 @@ final class WeeklySalesService
      * @param  array<string, array<int, int>>  $newByDate
      * @param  Collection<int, Product>  $products
      * @param  array<string, Order>  $ordersByDate
+     * @param  array<string, array<int, array<string, mixed>>>  $preservedByDate
      */
     private function replaceDailyOrderItems(
         array $dates,
         array $newByDate,
         Collection $products,
-        array $ordersByDate
+        array $ordersByDate,
+        array $preservedByDate
     ): void {
         foreach ($dates as $date) {
             $order = $ordersByDate[$date] ?? null;
@@ -354,14 +426,12 @@ final class WeeklySalesService
                 continue;
             }
 
-            if ($newByDate[$date] === []) {
-                $order->delete();
-
-                continue;
+            $subtotal = '0';
+            $rows = $preservedByDate[$date] ?? [];
+            foreach ($rows as $row) {
+                $subtotal = Money::add($subtotal, $row['subtotal']);
             }
 
-            $subtotal = '0';
-            $rows = [];
             foreach ($newByDate[$date] as $productId => $quantity) {
                 $product = $products->get($productId);
                 $unitPrice = $product->selling_price ?? $product->price ?? 0;
@@ -381,8 +451,14 @@ final class WeeklySalesService
             }
 
             $order->items()->delete();
+            if ($rows === []) {
+                $order->deleteQuietly();
+
+                continue;
+            }
+
             $order->items()->createMany($rows);
-            $order->update([
+            $order->updateQuietly([
                 'subtotal' => $subtotal,
                 'tax' => 0,
                 'shipping' => 0,

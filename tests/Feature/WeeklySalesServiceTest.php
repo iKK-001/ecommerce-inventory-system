@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Services\WeeklySalesService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
 use Tests\TestCase;
 
 class WeeklySalesServiceTest extends TestCase
@@ -185,6 +186,55 @@ class WeeklySalesServiceTest extends TestCase
         $this->assertSame(43, (int) $product->fresh()->stock);
         $this->assertSame(2, Order::where('source', 'tiktok_us_manual')->count());
         $this->assertSame(2, StockAdjustment::count());
+    }
+
+    public function test_reconciliation_does_not_emit_intermediate_product_update_events(): void
+    {
+        $first = $this->product('EVENT-FIRST', 5);
+        $insufficient = $this->product('EVENT-INSUFFICIENT', 0);
+        Event::fake();
+
+        try {
+            $this->save([
+                $this->row($first, ['2026-06-01' => 5]),
+                $this->row($insufficient, ['2026-06-02' => 1]),
+            ]);
+            $this->fail('Expected insufficient stock to roll back the weekly reconciliation.');
+        } catch (InsufficientStockException) {
+            // Expected.
+        }
+
+        Event::assertNotDispatched('eloquent.updated: '.Product::class);
+        $this->assertSame(5, (int) $first->fresh()->stock);
+    }
+
+    public function test_reconciliation_preserves_existing_sales_for_unsubmitted_hidden_skus(): void
+    {
+        $hidden = $this->product('HIDDEN', 10);
+        $visible = $this->product('VISIBLE', 10);
+
+        $this->save([
+            $this->row($hidden, ['2026-06-01' => 1]),
+            $this->row($visible, ['2026-06-01' => 2]),
+        ]);
+        $hidden->updateQuietly(['is_sellable' => false]);
+
+        $this->save([
+            $this->row($visible, ['2026-06-01' => 3]),
+        ]);
+
+        $this->assertSame(9, (int) $hidden->fresh()->stock);
+        $this->assertSame(7, (int) $visible->fresh()->stock);
+
+        $order = Order::where('external_id', 'tiktok-us-sales:2026-06-01')->firstOrFail();
+        $this->assertSame(
+            ['HIDDEN' => 1, 'VISIBLE' => 3],
+            $order->items()
+                ->orderBy('sku')
+                ->pluck('quantity', 'sku')
+                ->map(fn ($quantity): int => (int) $quantity)
+                ->all()
+        );
     }
 
     /**
