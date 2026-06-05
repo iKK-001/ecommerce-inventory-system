@@ -84,14 +84,29 @@ final class SkuOperationsService
                 $components = $componentsByKit->get($product->id, collect());
                 $productCostCny = $this->productCostCny($product, $components, $inventoryProducts);
                 $productCostUsd = round($productCostCny / $exchangeRate, 4);
+                $domesticLogisticsCostUsd = round(
+                    $this->domesticLogisticsCostCny($product, $components, $inventoryProducts) / $exchangeRate,
+                    4
+                );
+                $usFirstLegCostUsd = round(
+                    $this->usFirstLegCostCny($product, $components, $inventoryProducts) / $exchangeRate,
+                    4
+                );
                 $packingCostUsd = round(
                     ((float) $product->packaging_cost_cny + (float) $product->packing_labor_cost_cny)
                     / $exchangeRate,
                     4
                 );
-                $lastMileCostUsd = round((float) $product->last_mile_cost_usd, 4);
+                $usLastMileCostUsd = round((float) $product->last_mile_cost_usd, 4);
                 $sellingPriceUsd = round((float) ($product->selling_price ?? $product->price ?? 0), 4);
-                $unitTotalCostUsd = round($productCostUsd + $lastMileCostUsd + $packingCostUsd, 4);
+                $unitTotalCostUsd = round(
+                    $productCostUsd
+                    + $domesticLogisticsCostUsd
+                    + $usFirstLegCostUsd
+                    + $usLastMileCostUsd
+                    + $packingCostUsd,
+                    4
+                );
                 $grossProfitUsd = round($sellingPriceUsd - $unitTotalCostUsd, 4);
                 $grossMarginPercent = $sellingPriceUsd > 0
                     ? round(($grossProfitUsd / $sellingPriceUsd) * 100, 2)
@@ -132,7 +147,10 @@ final class SkuOperationsService
                     'is_entry_supported' => ! $product->has_variants,
                     'selling_price_usd' => $sellingPriceUsd,
                     'product_cost_usd' => $productCostUsd,
-                    'last_mile_cost_usd' => $lastMileCostUsd,
+                    'domestic_logistics_cost_usd' => $domesticLogisticsCostUsd,
+                    'us_first_leg_cost_usd' => $usFirstLegCostUsd,
+                    'us_last_mile_cost_usd' => $usLastMileCostUsd,
+                    'last_mile_cost_usd' => $usLastMileCostUsd,
                     'packing_cost_usd' => $packingCostUsd,
                     'unit_total_cost_usd' => $unitTotalCostUsd,
                     'gross_profit_usd' => $grossProfitUsd,
@@ -324,17 +342,89 @@ final class SkuOperationsService
      */
     private function productCostCny(Product $product, Collection $components, Collection $products): float
     {
+        return $this->componentAwareCostCny(
+            $product,
+            $components,
+            $products,
+            fn (Product $costProduct): float => $this->metadataUnitCostCny(
+                $costProduct,
+                ['unit_goods_cost_cny', 'goods_unit_cost_cny'],
+                (float) $costProduct->weighted_average_cost_cny
+            )
+        );
+    }
+
+    /**
+     * @param  Collection<int, ProductComponent>  $components
+     * @param  Collection<int, Product>  $products
+     */
+    private function domesticLogisticsCostCny(Product $product, Collection $components, Collection $products): float
+    {
+        return $this->componentAwareCostCny(
+            $product,
+            $components,
+            $products,
+            fn (Product $costProduct): float => $this->metadataUnitCostCny(
+                $costProduct,
+                ['domestic_logistics_unit_cny', 'domestic_freight_unit_cny']
+            )
+        );
+    }
+
+    /**
+     * @param  Collection<int, ProductComponent>  $components
+     * @param  Collection<int, Product>  $products
+     */
+    private function usFirstLegCostCny(Product $product, Collection $components, Collection $products): float
+    {
+        return $this->componentAwareCostCny(
+            $product,
+            $components,
+            $products,
+            fn (Product $costProduct): float => $this->metadataUnitCostCny(
+                $costProduct,
+                [
+                    'first_leg_freight_unit_cny',
+                    'first_leg_unit_cost_cny',
+                    'first_leg_unit_cny',
+                ]
+            )
+        );
+    }
+
+    /**
+     * @param  Collection<int, ProductComponent>  $components
+     * @param  Collection<int, Product>  $products
+     */
+    private function componentAwareCostCny(
+        Product $product,
+        Collection $components,
+        Collection $products,
+        callable $unitCost
+    ): float {
         if (! $product->isKit()) {
-            return round((float) $product->weighted_average_cost_cny, 4);
+            return round($unitCost($product), 4);
         }
 
-        return round($components->sum(function (ProductComponent $component) use ($products): float {
+        return round($components->sum(function (ProductComponent $component) use ($products, $unitCost): float {
             $componentProduct = $products->get($component->component_product_id);
 
             return $componentProduct
-                ? (float) $componentProduct->weighted_average_cost_cny * (float) $component->quantity
+                ? $unitCost($componentProduct) * (float) $component->quantity
                 : 0.0;
         }), 4);
+    }
+
+    private function metadataUnitCostCny(Product $product, array $keys, float $fallback = 0.0): float
+    {
+        $metadata = $product->metadata ?? [];
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $metadata) && is_numeric($metadata[$key])) {
+                return (float) $metadata[$key];
+            }
+        }
+
+        return $fallback;
     }
 
     /**

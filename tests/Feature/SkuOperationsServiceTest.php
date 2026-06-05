@@ -68,6 +68,47 @@ class SkuOperationsServiceTest extends TestCase
         $this->assertEqualsWithDelta(60.0, $row['gross_margin_percent'], 0.0001);
     }
 
+    public function test_report_splits_domestic_first_leg_last_mile_and_packing_costs(): void
+    {
+        $organization = $this->organization('Cost Split Org');
+        Setting::create([
+            'organization_id' => $organization->id,
+            'key' => 'inventory.exchange_rate_cny_per_usd',
+            'value' => '7.2',
+        ]);
+
+        $product = $this->product($organization, [
+            'sku' => 'SPLIT',
+            'name' => 'Cost Split Product',
+            'selling_price' => 20,
+            'weighted_average_cost_cny' => 57.6,
+            'packaging_cost_cny' => 3.6,
+            'packing_labor_cost_cny' => 3.6,
+            'last_mile_cost_usd' => 2,
+            'metadata' => [
+                'unit_goods_cost_cny' => 36,
+                'domestic_logistics_unit_cny' => 7.2,
+                'first_leg_freight_unit_cny' => 14.4,
+            ],
+        ]);
+
+        $report = app(SkuOperationsService::class)->report(
+            $organization->id,
+            CarbonImmutable::parse('2026-06-01')
+        );
+        $row = collect($report['rows'])->firstWhere('product_id', $product->id);
+
+        $this->assertNotNull($row);
+        $this->assertEqualsWithDelta(5.0, $row['product_cost_usd'], 0.0001);
+        $this->assertEqualsWithDelta(1.0, $row['domestic_logistics_cost_usd'], 0.0001);
+        $this->assertEqualsWithDelta(2.0, $row['us_first_leg_cost_usd'], 0.0001);
+        $this->assertEqualsWithDelta(2.0, $row['us_last_mile_cost_usd'], 0.0001);
+        $this->assertEqualsWithDelta(1.0, $row['packing_cost_usd'], 0.0001);
+        $this->assertEqualsWithDelta(11.0, $row['unit_total_cost_usd'], 0.0001);
+        $this->assertEqualsWithDelta(9.0, $row['gross_profit_usd'], 0.0001);
+        $this->assertEqualsWithDelta(45.0, $row['gross_margin_percent'], 0.0001);
+    }
+
     public function test_kit_cost_stock_and_in_transit_use_all_components_and_the_limiting_quantity(): void
     {
         $organization = $this->organization('Kit Operations Org');

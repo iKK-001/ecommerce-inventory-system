@@ -58,6 +58,7 @@ Route::get('/purchase-orders/{purchaseOrder}/invoice/preview', [PurchaseOrderInv
 // Order Management - Permission based
 Route::get('/weekly-sales', [WeeklySalesController::class, 'index'])->name('weekly-sales.index')->middleware('permission:view_orders');
 Route::post('/weekly-sales', [WeeklySalesController::class, 'store'])->name('weekly-sales.store')->middleware('permission:create_orders');
+Route::put('/weekly-sales/products/{product}/costs', [WeeklySalesController::class, 'updateCosts'])->name('weekly-sales.costs.update')->middleware('permission:edit_products');
 Route::get('/orders', [OrderController::class, 'index'])->name('orders.index')->middleware('permission:view_orders');
 Route::get('/orders/create', [OrderController::class, 'create'])->name('orders.create')->middleware('permission:create_orders');
 Route::post('/orders', [OrderController::class, 'store'])->name('orders.store')->middleware('permission:create_orders');

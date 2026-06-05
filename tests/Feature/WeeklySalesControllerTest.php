@@ -8,6 +8,7 @@ use App\Models\Auth\Organization;
 use App\Models\Inventory\Product;
 use App\Models\Order\Order;
 use App\Models\Role;
+use App\Models\Setting;
 use App\Models\System\SystemSetting;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -110,6 +111,65 @@ class WeeklySalesControllerTest extends TestCase
         $this->actingAs($user)
             ->post('/weekly-sales', $this->payload($variantTracked))
             ->assertSessionHasErrors('sales.0.product_id');
+    }
+
+    public function test_user_with_edit_products_can_update_weekly_sales_costs_from_usd_inputs(): void
+    {
+        $organization = $this->organization('Weekly Cost Edit Org');
+        Setting::create([
+            'organization_id' => $organization->id,
+            'key' => 'inventory.exchange_rate_cny_per_usd',
+            'value' => '7.2',
+        ]);
+        $user = $this->user($organization, ['edit_products']);
+        $product = $this->product($organization, 'COST-SKU');
+
+        $response = $this->actingAs($user)
+            ->put("/weekly-sales/products/{$product->id}/costs", [
+                'week_start' => '2026-06-01',
+                'selling_price_usd' => 12.34,
+                'product_cost_usd' => 0.50,
+                'domestic_logistics_cost_usd' => 0.10,
+                'us_first_leg_cost_usd' => 0.20,
+                'us_last_mile_cost_usd' => 1.25,
+                'packing_cost_usd' => 0.30,
+            ]);
+
+        $response->assertRedirect('/weekly-sales?week_start=2026-06-01');
+        $response->assertSessionHas('success');
+
+        $product->refresh();
+        $this->assertSame('12.34', (string) $product->selling_price);
+        $this->assertSame('12.34', (string) $product->price);
+        $this->assertSame('USD', $product->currency);
+        $this->assertSame('1.2500', (string) $product->last_mile_cost_usd);
+        $this->assertSame('2.1600', (string) $product->packaging_cost_cny);
+        $this->assertSame('0.0000', (string) $product->packing_labor_cost_cny);
+        $this->assertSame('5.7600', (string) $product->weighted_average_cost_cny);
+        $this->assertSame(3.6, $product->metadata['unit_goods_cost_cny']);
+        $this->assertSame(0.72, $product->metadata['domestic_logistics_unit_cny']);
+        $this->assertSame(1.44, $product->metadata['first_leg_freight_unit_cny']);
+    }
+
+    public function test_user_without_edit_products_cannot_update_weekly_sales_costs(): void
+    {
+        $organization = $this->organization('No Weekly Cost Edit Org');
+        $user = $this->user($organization, ['view_orders']);
+        $product = $this->product($organization, 'NO-COST-EDIT-SKU');
+
+        $this->actingAs($user)
+            ->put("/weekly-sales/products/{$product->id}/costs", [
+                'week_start' => '2026-06-01',
+                'selling_price_usd' => 12.34,
+                'product_cost_usd' => 0.50,
+                'domestic_logistics_cost_usd' => 0.10,
+                'us_first_leg_cost_usd' => 0.20,
+                'us_last_mile_cost_usd' => 1.25,
+                'packing_cost_usd' => 0.30,
+            ])
+            ->assertStatus(403);
+
+        $this->assertSame('10.00', (string) $product->fresh()->selling_price);
     }
 
     private function organization(string $name): Organization

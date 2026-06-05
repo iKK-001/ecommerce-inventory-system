@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { Head, router, useForm, usePage } from '@inertiajs/vue3';
 import { useI18n } from 'vue-i18n';
 import {
@@ -31,20 +31,41 @@ import StatTile from '@/Components/ui/StatTile.vue';
 const props = defineProps({
     report: { type: Object, required: true },
     canSave: { type: Boolean, default: false },
+    canEditCosts: { type: Boolean, default: false },
 });
 
 const { t, locale } = useI18n();
 const page = usePage();
 const form = useForm({ week_start: props.report.week_start, sales: [] });
+const costForm = useForm({
+    week_start: props.report.week_start,
+    selling_price_usd: 0,
+    product_cost_usd: 0,
+    domestic_logistics_cost_usd: 0,
+    us_first_leg_cost_usd: 0,
+    us_last_mile_cost_usd: 0,
+    packing_cost_usd: 0,
+});
 const search = ref('');
 const stockFilter = ref('all');
 const changedOnly = ref(false);
 const expandedIds = ref(new Set());
 const originalQuantities = ref({});
 const draftQuantities = ref({});
+const costDrafts = ref({});
+const editingCostProductId = ref(null);
 const clientError = ref('');
 const allowNavigation = ref(false);
 const inputRefs = {};
+
+const costFields = [
+    { key: 'selling_price_usd', label: 'weeklySales.sellingPrice', valueKey: 'selling_price_usd', strong: true, digits: 2 },
+    { key: 'product_cost_usd', label: 'weeklySales.productCost', valueKey: 'product_cost_usd', digits: 4 },
+    { key: 'domestic_logistics_cost_usd', label: 'weeklySales.domesticLogistics', valueKey: 'domestic_logistics_cost_usd', digits: 4 },
+    { key: 'packing_cost_usd', label: 'weeklySales.packingCost', valueKey: 'packing_cost_usd', digits: 4 },
+    { key: 'us_first_leg_cost_usd', label: 'weeklySales.usFirstLeg', valueKey: 'us_first_leg_cost_usd', digits: 4 },
+    { key: 'us_last_mile_cost_usd', label: 'weeklySales.usLastMile', valueKey: 'us_last_mile_cost_usd', digits: 4 },
+];
 
 const copyDailyQuantities = (row) =>
     Object.fromEntries(props.report.days.map((day) => [day.date, Number(row.daily_quantities?.[day.date] ?? 0)]));
@@ -57,6 +78,21 @@ const initializeDrafts = () => {
 };
 
 initializeDrafts();
+
+const copyCostDraft = (row) =>
+    Object.fromEntries(costFields.map((field) => [field.key, Number(row[field.valueKey] ?? 0).toFixed(field.digits)]));
+
+const initializeCostDrafts = () => {
+    costDrafts.value = Object.fromEntries(props.report.rows.map((row) => [row.product_id, copyCostDraft(row)]));
+    costForm.clearErrors();
+};
+
+initializeCostDrafts();
+
+watch(
+    () => props.report.rows,
+    () => initializeCostDrafts()
+);
 
 const isDirty = (productId) =>
     props.report.days.some(
@@ -82,7 +118,7 @@ const visibleRows = computed(() => {
     });
 });
 
-const firstError = computed(() => clientError.value || Object.values(form.errors)[0] || null);
+const firstError = computed(() => clientError.value || Object.values(form.errors)[0] || Object.values(costForm.errors)[0] || null);
 const flashSuccess = computed(() => page.props.flash?.success);
 
 const formatUsd = (value) =>
@@ -154,6 +190,58 @@ const toggleRow = (row) => {
 };
 
 const selectValue = (event) => event.target.select();
+
+const isEditingCosts = (row) => editingCostProductId.value === row.product_id;
+
+const startCostEdit = (row) => {
+    if (!props.canEditCosts || costForm.processing) return;
+    costDrafts.value[row.product_id] = copyCostDraft(row);
+    editingCostProductId.value = row.product_id;
+    costForm.clearErrors();
+};
+
+const cancelCostEdit = (row) => {
+    costDrafts.value[row.product_id] = copyCostDraft(row);
+    if (editingCostProductId.value === row.product_id) editingCostProductId.value = null;
+    costForm.clearErrors();
+};
+
+const updateCostDraft = (row, key, event) => {
+    costDrafts.value[row.product_id][key] = event.target.value;
+    costForm.clearErrors();
+};
+
+const normalizeCostDraft = (row, key) => {
+    const field = costFields.find((candidate) => candidate.key === key);
+    const value = Number(costDrafts.value[row.product_id][key]);
+    const digits = field?.digits ?? 2;
+    costDrafts.value[row.product_id][key] = Number.isFinite(value) && value >= 0 ? value.toFixed(digits) : Number(0).toFixed(digits);
+};
+
+const costDraftValue = (row, key) => Number(costDrafts.value[row.product_id]?.[key] || 0);
+
+const saveCostEdits = (row) => {
+    if (!props.canEditCosts || !isEditingCosts(row) || costForm.processing) return;
+
+    costFields.forEach((field) => normalizeCostDraft(row, field.key));
+    costForm.week_start = props.report.week_start;
+    costFields.forEach((field) => {
+        costForm[field.key] = costDraftValue(row, field.key);
+    });
+
+    allowNavigation.value = true;
+    costForm.put(route('weekly-sales.costs.update', row.product_id), {
+        preserveScroll: true,
+        preserveState: true,
+        onSuccess: () => {
+            editingCostProductId.value = null;
+            initializeCostDrafts();
+        },
+        onFinish: () => {
+            allowNavigation.value = false;
+        },
+    });
+};
 
 const updateQuantity = (productId, date, event) => {
     const rawValue = event.target.value;
@@ -268,7 +356,7 @@ const rowError = (row) => {
 };
 
 const handleBeforeUnload = (event) => {
-    if (dirtyCount.value === 0) return;
+    if (dirtyCount.value === 0 && editingCostProductId.value === null) return;
     event.preventDefault();
     event.returnValue = '';
 };
@@ -277,7 +365,7 @@ let removeBeforeListener;
 onMounted(() => {
     window.addEventListener('beforeunload', handleBeforeUnload);
     removeBeforeListener = router.on('before', (event) => {
-        if (!allowNavigation.value && dirtyCount.value > 0 && !window.confirm(t('weeklySales.leaveWarning'))) {
+        if (!allowNavigation.value && (dirtyCount.value > 0 || editingCostProductId.value !== null) && !window.confirm(t('weeklySales.leaveWarning'))) {
             event.preventDefault();
         }
     });
@@ -291,6 +379,8 @@ onUnmounted(() => {
 const thClass = 'whitespace-nowrap px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-text-tertiary';
 const thRightClass = `${thClass} text-right`;
 const tdRightClass = 'whitespace-nowrap px-3 py-3 text-right text-xs tabular-nums text-text-secondary';
+const costInputClass = 'h-8 w-24 rounded-md border border-border-strong bg-surface-canvas px-2 text-right text-xs font-semibold tabular-nums text-text-primary ds-focus-ring';
+const editableCostClass = 'rounded-md px-2 py-1 tabular-nums transition-colors hover:bg-brand-soft hover:text-brand ds-focus-ring';
 </script>
 
 <template>
@@ -439,16 +529,19 @@ const tdRightClass = 'whitespace-nowrap px-3 py-3 text-right text-xs tabular-num
 
         <Card class="mt-4" :padded="false">
             <div v-if="visibleRows.length > 0" class="w-full overflow-x-auto">
-                <table class="min-w-[1780px] w-full border-separate border-spacing-0 text-sm">
+                <table class="min-w-[2060px] w-full border-separate border-spacing-0 text-sm">
                     <thead class="bg-surface-raised">
                         <tr>
                             <th :class="[thClass, 'sticky left-0 z-20 min-w-[240px] border-b border-r border-border-subtle bg-surface-raised']">
                                 {{ t('weeklySales.skuProduct') }}
                             </th>
-                            <th :class="[thRightClass, 'border-b border-border-subtle']">{{ t('weeklySales.sellingPrice') }}</th>
-                            <th :class="[thRightClass, 'border-b border-border-subtle']">{{ t('weeklySales.productCost') }}</th>
-                            <th :class="[thRightClass, 'border-b border-border-subtle']">{{ t('weeklySales.lastMile') }}</th>
-                            <th :class="[thRightClass, 'border-b border-border-subtle']">{{ t('weeklySales.packingCost') }}</th>
+                            <th
+                                v-for="field in costFields"
+                                :key="field.key"
+                                :class="[thRightClass, 'border-b border-border-subtle']"
+                            >
+                                {{ t(field.label) }}
+                            </th>
                             <th :class="[thRightClass, 'border-b border-border-subtle']">{{ t('weeklySales.totalCost') }}</th>
                             <th :class="[thRightClass, 'border-b border-border-subtle']">{{ t('weeklySales.grossProfit') }}</th>
                             <th :class="[thRightClass, 'border-b border-border-subtle']">{{ t('weeklySales.margin') }}</th>
@@ -479,6 +572,7 @@ const tdRightClass = 'whitespace-nowrap px-3 py-3 text-right text-xs tabular-num
                                                 <p class="truncate font-medium text-text-primary">{{ row.name }}</p>
                                                 <Badge v-if="row.type === 'kit'" variant="info" size="sm">{{ t('products.create.kit') }}</Badge>
                                                 <Badge v-if="isDirty(row.product_id)" variant="warning" size="sm" dot>{{ t('weeklySales.unsaved') }}</Badge>
+                                                <Badge v-if="isEditingCosts(row)" variant="info" size="sm">{{ t('weeklySales.editingCosts') }}</Badge>
                                             </div>
                                             <p class="mt-1 truncate font-mono text-[11px] text-text-tertiary">{{ row.sku || '—' }}</p>
                                         </div>
@@ -487,10 +581,39 @@ const tdRightClass = 'whitespace-nowrap px-3 py-3 text-right text-xs tabular-num
                                         </Badge>
                                     </div>
                                 </td>
-                                <td :class="tdRightClass"><span class="font-medium text-text-primary">{{ formatUsd(row.selling_price_usd) }}</span></td>
-                                <td :class="tdRightClass">{{ formatUsd(row.product_cost_usd) }}</td>
-                                <td :class="tdRightClass">{{ formatUsd(row.last_mile_cost_usd) }}</td>
-                                <td :class="tdRightClass">{{ formatUsd(row.packing_cost_usd) }}</td>
+                                <td
+                                    v-for="field in costFields"
+                                    :key="field.key"
+                                    :class="[tdRightClass, props.canEditCosts ? 'align-middle' : '']"
+                                >
+                                    <input
+                                        v-if="isEditingCosts(row)"
+                                        :value="costDrafts[row.product_id]?.[field.key]"
+                                        :aria-label="`${row.sku || row.name} ${t(field.label)}`"
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        inputmode="decimal"
+                                        :class="costInputClass"
+                                        @input="updateCostDraft(row, field.key, $event)"
+                                        @blur="normalizeCostDraft(row, field.key)"
+                                        @focus="selectValue"
+                                        @keydown.enter.prevent="saveCostEdits(row)"
+                                        @keydown.esc.prevent="cancelCostEdit(row)"
+                                    />
+                                    <button
+                                        v-else-if="props.canEditCosts"
+                                        type="button"
+                                        :class="[editableCostClass, field.strong ? 'font-medium text-text-primary' : 'text-text-secondary']"
+                                        :title="t('weeklySales.editCostHint')"
+                                        @click="startCostEdit(row)"
+                                    >
+                                        {{ formatUsd(row[field.valueKey]) }}
+                                    </button>
+                                    <span v-else :class="field.strong ? 'font-medium text-text-primary' : ''">
+                                        {{ formatUsd(row[field.valueKey]) }}
+                                    </span>
+                                </td>
                                 <td :class="tdRightClass"><span class="font-medium text-text-primary">{{ formatUsd(row.unit_total_cost_usd) }}</span></td>
                                 <td :class="tdRightClass"><span :class="row.gross_profit_usd >= 0 ? 'text-status-success' : 'text-status-danger'">{{ formatUsd(row.gross_profit_usd) }}</span></td>
                                 <td :class="tdRightClass">{{ row.gross_margin_percent === null ? '—' : `${formatNumber(row.gross_margin_percent)}%` }}</td>
@@ -504,20 +627,39 @@ const tdRightClass = 'whitespace-nowrap px-3 py-3 text-right text-xs tabular-num
                                 </td>
                                 <td :class="tdRightClass"><span class="font-semibold text-text-primary">{{ formatNumber(weeklyTotal(row), 0) }}</span></td>
                                 <td class="whitespace-nowrap border-b border-border-subtle px-3 py-3 text-right">
-                                    <Button
-                                        variant="secondary"
-                                        size="xs"
-                                        :disabled="!row.is_entry_supported"
-                                        @click="toggleRow(row)"
-                                    >
-                                        <component :is="expandedIds.has(row.product_id) ? ChevronUp : ChevronDown" :size="13" />
-                                        {{ canSave ? t('weeklySales.enterSales') : t('weeklySales.viewSales') }}
-                                    </Button>
-                                    <p v-if="!row.is_entry_supported" class="mt-1 text-[10px] text-status-warning">{{ t('weeklySales.unsupportedVariants') }}</p>
+                                    <div v-if="isEditingCosts(row)" class="flex items-center justify-end gap-1">
+                                        <Button size="xs" :loading="costForm.processing" @click="saveCostEdits(row)">
+                                            <Save :size="13" />
+                                            {{ t('weeklySales.saveCosts') }}
+                                        </Button>
+                                        <Button variant="secondary" size="xs" :disabled="costForm.processing" @click="cancelCostEdit(row)">
+                                            {{ t('weeklySales.cancelCosts') }}
+                                        </Button>
+                                    </div>
+                                    <template v-else>
+                                        <Button
+                                            variant="secondary"
+                                            size="xs"
+                                            :disabled="!row.is_entry_supported"
+                                            @click="toggleRow(row)"
+                                        >
+                                            <component :is="expandedIds.has(row.product_id) ? ChevronUp : ChevronDown" :size="13" />
+                                            {{ canSave ? t('weeklySales.enterSales') : t('weeklySales.viewSales') }}
+                                        </Button>
+                                        <button
+                                            v-if="props.canEditCosts"
+                                            type="button"
+                                            class="mt-1 block w-full text-right text-[10px] font-medium text-brand hover:text-brand-hover ds-focus-ring"
+                                            @click="startCostEdit(row)"
+                                        >
+                                            {{ t('weeklySales.editCosts') }}
+                                        </button>
+                                        <p v-if="!row.is_entry_supported" class="mt-1 text-[10px] text-status-warning">{{ t('weeklySales.unsupportedVariants') }}</p>
+                                    </template>
                                 </td>
                             </tr>
                             <tr v-if="expandedIds.has(row.product_id)" class="bg-surface-canvas">
-                                <td colspan="13" class="border-b border-border-subtle px-4 py-4">
+                                <td colspan="15" class="border-b border-border-subtle px-4 py-4">
                                     <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                                         <div class="min-w-0 flex-1">
                                             <div class="flex flex-wrap items-center justify-between gap-2">
