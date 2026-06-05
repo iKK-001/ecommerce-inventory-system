@@ -299,7 +299,7 @@ const tdRightClass = 'whitespace-nowrap px-3 py-3 text-right text-xs tabular-num
     <AppLayout>
         <template #header>
             <div class="flex items-center gap-2 text-xs">
-                <span class="text-text-tertiary">Workspace</span>
+                <span class="text-text-tertiary">{{ t('nav.sections.workspace') }}</span>
                 <span class="text-text-tertiary">/</span>
                 <span class="font-medium text-text-primary">{{ t('weeklySales.title') }}</span>
             </div>
@@ -477,7 +477,7 @@ const tdRightClass = 'whitespace-nowrap px-3 py-3 text-right text-xs tabular-num
                                         <div class="min-w-0">
                                             <div class="flex flex-wrap items-center gap-1.5">
                                                 <p class="truncate font-medium text-text-primary">{{ row.name }}</p>
-                                                <Badge v-if="row.type === 'kit'" variant="info" size="sm">Kit</Badge>
+                                                <Badge v-if="row.type === 'kit'" variant="info" size="sm">{{ t('products.create.kit') }}</Badge>
                                                 <Badge v-if="isDirty(row.product_id)" variant="warning" size="sm" dot>{{ t('weeklySales.unsaved') }}</Badge>
                                             </div>
                                             <p class="mt-1 truncate font-mono text-[11px] text-text-tertiary">{{ row.sku || '—' }}</p>

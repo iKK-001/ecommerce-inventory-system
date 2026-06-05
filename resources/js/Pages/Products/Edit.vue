@@ -197,7 +197,7 @@ const fieldError = 'mt-1 text-xs text-status-danger';
     <AppLayout>
         <template #header>
             <div class="flex items-center gap-2 text-xs">
-                <Link :href="route('products.index')" class="text-text-tertiary hover:text-text-primary">Workspace</Link>
+                <Link :href="route('products.index')" class="text-text-tertiary hover:text-text-primary">{{ t('nav.sections.workspace') }}</Link>
                 <span class="text-text-tertiary">/</span>
                 <Link :href="route('products.index')" class="text-text-tertiary hover:text-text-primary">{{ t('products.title') }}</Link>
                 <span class="text-text-tertiary">/</span>
@@ -267,14 +267,14 @@ const fieldError = 'mt-1 text-xs text-status-danger';
 
                         <!-- Product Type -->
                         <div>
-                            <label for="type" :class="fieldLabel">Product Type</label>
+                            <label for="type" :class="fieldLabel">{{ t('products.create.productType') }}</label>
                             <select id="type" v-model="form.type" :class="fieldInput">
-                                <option value="standard">Standard</option>
-                                <option value="kit">Kit</option>
-                                <option value="assembly">Assembly</option>
+                                <option value="standard">{{ t('products.create.standard') }}</option>
+                                <option value="kit">{{ t('products.create.kit') }}</option>
+                                <option value="assembly">{{ t('products.create.assembly') }}</option>
                             </select>
                             <p class="mt-1 text-xs text-text-tertiary">
-                                Kits bundle components for sale. Assemblies require work orders to produce.
+                                {{ t('products.create.productTypeHint') }}
                             </p>
                             <p v-if="form.errors.type" :class="fieldError">{{ form.errors.type }}</p>
                         </div>
@@ -306,31 +306,31 @@ const fieldError = 'mt-1 text-xs text-status-danger';
                         </div>
 
                         <div>
-                            <label for="packaging_cost_cny" :class="fieldLabel">Packaging material cost (CNY / SKU)</label>
+                            <label for="packaging_cost_cny" :class="fieldLabel">{{ t('products.create.packagingCostCny') }}</label>
                             <input id="packaging_cost_cny" v-model="form.packaging_cost_cny" type="number" step="0.0001" min="0" :class="fieldInput" />
-                            <p class="mt-1 text-xs text-text-tertiary">Material portion of the per-SKU packing cost.</p>
+                            <p class="mt-1 text-xs text-text-tertiary">{{ t('products.create.packagingCostHint') }}</p>
                             <p v-if="form.errors.packaging_cost_cny" :class="fieldError">{{ form.errors.packaging_cost_cny }}</p>
                         </div>
 
                         <div>
-                            <label for="packing_labor_cost_cny" :class="fieldLabel">Packing labor cost (CNY / SKU)</label>
+                            <label for="packing_labor_cost_cny" :class="fieldLabel">{{ t('products.create.packingLaborCostCny') }}</label>
                             <input id="packing_labor_cost_cny" v-model="form.packing_labor_cost_cny" type="number" step="0.0001" min="0" :class="fieldInput" />
-                            <p class="mt-1 text-xs text-text-tertiary">Packing cost equals packaging material plus packing labor.</p>
+                            <p class="mt-1 text-xs text-text-tertiary">{{ t('products.create.packingLaborCostHint') }}</p>
                             <p v-if="form.errors.packing_labor_cost_cny" :class="fieldError">{{ form.errors.packing_labor_cost_cny }}</p>
                         </div>
 
                         <div>
-                            <label for="last_mile_cost_usd" :class="fieldLabel">US last-mile cost (USD / SKU)</label>
+                            <label for="last_mile_cost_usd" :class="fieldLabel">{{ t('products.create.lastMileCostUsd') }}</label>
                             <input id="last_mile_cost_usd" v-model="form.last_mile_cost_usd" type="number" step="0.0001" min="0" :class="fieldInput" />
-                            <p class="mt-1 text-xs text-text-tertiary">US delivery or fulfillment cost for one sold SKU.</p>
+                            <p class="mt-1 text-xs text-text-tertiary">{{ t('products.create.lastMileCostHint') }}</p>
                             <p v-if="form.errors.last_mile_cost_usd" :class="fieldError">{{ form.errors.last_mile_cost_usd }}</p>
                         </div>
 
                         <label class="flex items-start gap-3 rounded-lg border border-border-subtle bg-surface-canvas p-4">
                             <input v-model="form.is_sellable" type="checkbox" class="mt-0.5 rounded border-border-strong text-brand focus:ring-brand" />
                             <span>
-                                <span class="block text-sm font-medium text-text-primary">Sellable SKU</span>
-                                <span class="mt-0.5 block text-xs text-text-tertiary">Show this SKU in TikTok US weekly sales and operating reports.</span>
+                                <span class="block text-sm font-medium text-text-primary">{{ t('products.create.sellableSku') }}</span>
+                                <span class="mt-0.5 block text-xs text-text-tertiary">{{ t('products.create.sellableSkuHint') }}</span>
                             </span>
                         </label>
 
@@ -386,17 +386,17 @@ const fieldError = 'mt-1 text-xs text-status-danger';
 
                         <!-- Reorder Point -->
                         <div>
-                            <label for="reorder_point" :class="fieldLabel">Reorder Point</label>
-                            <input id="reorder_point" v-model="form.reorder_point" type="number" min="0" :class="fieldInput" placeholder="Leave empty to disable" />
-                            <p class="mt-1 text-xs text-text-tertiary">Stock level that triggers automatic reorder</p>
+                            <label for="reorder_point" :class="fieldLabel">{{ t('products.create.reorderPoint') }}</label>
+                            <input id="reorder_point" v-model="form.reorder_point" type="number" min="0" :class="fieldInput" :placeholder="t('products.create.reorderPointPlaceholder')" />
+                            <p class="mt-1 text-xs text-text-tertiary">{{ t('products.create.reorderPointHint') }}</p>
                             <p v-if="form.errors.reorder_point" :class="fieldError">{{ form.errors.reorder_point }}</p>
                         </div>
 
                         <!-- Reorder Quantity -->
                         <div>
-                            <label for="reorder_quantity" :class="fieldLabel">Reorder Quantity</label>
-                            <input id="reorder_quantity" v-model="form.reorder_quantity" type="number" min="0" :class="fieldInput" placeholder="Leave empty to disable" />
-                            <p class="mt-1 text-xs text-text-tertiary">Quantity to order when stock reaches reorder point</p>
+                            <label for="reorder_quantity" :class="fieldLabel">{{ t('products.create.reorderQuantity') }}</label>
+                            <input id="reorder_quantity" v-model="form.reorder_quantity" type="number" min="0" :class="fieldInput" :placeholder="t('products.create.reorderPointPlaceholder')" />
+                            <p class="mt-1 text-xs text-text-tertiary">{{ t('products.create.reorderQuantityHint') }}</p>
                             <p v-if="form.errors.reorder_quantity" :class="fieldError">{{ form.errors.reorder_quantity }}</p>
                         </div>
 
@@ -448,13 +448,13 @@ const fieldError = 'mt-1 text-xs text-status-danger';
 
                         <!-- Tracking Type -->
                         <div>
-                            <label for="tracking_type" :class="fieldLabel">Inventory Tracking</label>
+                            <label for="tracking_type" :class="fieldLabel">{{ t('products.create.inventoryTracking') }}</label>
                             <select id="tracking_type" v-model="form.tracking_type" :class="fieldInput">
-                                <option value="none">No Tracking</option>
-                                <option value="batch">Batch Tracking</option>
-                                <option value="serial">Serial Number Tracking</option>
+                                <option value="none">{{ t('products.create.noTracking') }}</option>
+                                <option value="batch">{{ t('products.create.batchTracking') }}</option>
+                                <option value="serial">{{ t('products.create.serialTracking') }}</option>
                             </select>
-                            <p class="mt-1 text-xs text-text-tertiary">Choose how to track individual units of this product.</p>
+                            <p class="mt-1 text-xs text-text-tertiary">{{ t('products.create.trackingHint') }}</p>
                             <p v-if="form.errors.tracking_type" :class="fieldError">{{ form.errors.tracking_type }}</p>
                         </div>
                     </div>
