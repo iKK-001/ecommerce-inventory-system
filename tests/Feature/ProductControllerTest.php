@@ -338,6 +338,34 @@ class ProductControllerTest extends TestCase
         ]);
     }
 
+    public function test_product_cost_fields_default_to_zero_when_form_submits_empty_values(): void
+    {
+        $productData = [
+            'sku' => 'EMPTY-COST-SKU-001',
+            'name' => 'Empty Cost Product',
+            'price' => 99.99,
+            'currency' => 'USD',
+            'stock' => 25,
+            'min_stock' => 5,
+            'packaging_cost_cny' => '',
+            'packing_labor_cost_cny' => '',
+            'last_mile_cost_usd' => '',
+            'category_id' => $this->category->id,
+            'location_id' => $this->location->id,
+        ];
+
+        $response = $this->actingAs($this->admin)
+            ->post(route('products.store'), $productData);
+
+        $response->assertRedirect(route('products.index'));
+
+        $product = Product::where('sku', 'EMPTY-COST-SKU-001')->firstOrFail();
+
+        $this->assertSame('0.0000', (string) $product->packaging_cost_cny);
+        $this->assertSame('0.0000', (string) $product->packing_labor_cost_cny);
+        $this->assertSame('0.0000', (string) $product->last_mile_cost_usd);
+    }
+
     public function test_member_can_create_product(): void
     {
         $productData = [

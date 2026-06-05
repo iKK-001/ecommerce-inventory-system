@@ -22,6 +22,13 @@ use InvalidArgumentException;
  */
 final class ProductService
 {
+    private const ZERO_DEFAULT_DECIMAL_FIELDS = [
+        'weighted_average_cost_cny',
+        'packaging_cost_cny',
+        'last_mile_cost_usd',
+        'packing_labor_cost_cny',
+    ];
+
     /**
      * Create a product (plus its options/variants) from validated data.
      *
@@ -30,6 +37,7 @@ final class ProductService
     public function create(array $data): Product
     {
         $data = $this->normaliseCurrencies($data);
+        $data = $this->normaliseZeroDefaultDecimals($data);
         $data = $this->processStoreImages($data);
 
         $options = $data['options'] ?? [];
@@ -65,6 +73,8 @@ final class ProductService
      */
     public function update(Product $product, array $data): Product
     {
+        $data = $this->normaliseZeroDefaultDecimals($data);
+
         if (isset($data['images'])) {
             $data = $this->processUpdateImages($product, $data);
         }
@@ -103,6 +113,21 @@ final class ProductService
                 $currencies[$currencyPrice['currency']] = $currencyPrice['price'];
             }
             $data['price_in_currencies'] = $currencies;
+        }
+
+        return $data;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function normaliseZeroDefaultDecimals(array $data): array
+    {
+        foreach (self::ZERO_DEFAULT_DECIMAL_FIELDS as $field) {
+            if (array_key_exists($field, $data) && ($data[$field] === null || $data[$field] === '')) {
+                $data[$field] = 0;
+            }
         }
 
         return $data;
