@@ -22,6 +22,7 @@ import {
     LayoutGrid,
     PackageSearch,
     ShoppingCart,
+    CalendarDays,
     Undo2,
     ClipboardList,
     Truck,
@@ -48,6 +49,7 @@ import GlobalSearch from '@/Components/Layout/GlobalSearch.vue';
 import NotificationDropdown from '@/Components/Layout/NotificationDropdown.vue';
 import ThemeToggle from '@/Components/Layout/ThemeToggle.vue';
 import WarehouseSwitcher from '@/Components/WarehouseSwitcher.vue';
+import LanguageSwitcher from '@/Components/LanguageSwitcher.vue';
 
 const { t } = useI18n();
 const page = usePage();
@@ -81,46 +83,47 @@ const workspaceName = computed(() => page.props.auth?.organization?.name || 'Inv
  */
 const sections = computed(() => [
     {
-        label: 'Workspace',
+        label: t('nav.sections.workspace'),
         items: [
-            { icon: LayoutGrid, name: 'Dashboard', href: route('dashboard'), active: ['dashboard'] },
-            { icon: Boxes, name: 'Inventory', href: route('products.index'), active: ['products.*'], perm: 'view_products' },
-            { icon: ShoppingCart, name: 'Orders', href: route('orders.index'), active: ['orders.*'], perm: 'view_orders' },
-            { icon: Undo2, name: 'Returns', href: route('returns.index'), active: ['returns.*'], perm: 'manage_returns' },
-            { icon: ClipboardList, name: 'Purchase Orders', href: route('purchase-orders.index'), active: ['purchase-orders.*'], perm: 'view_purchase_orders' },
-            { icon: Truck, name: 'Suppliers', href: route('suppliers.index'), active: ['suppliers.*'], perm: 'view_suppliers' },
+            { icon: LayoutGrid, name: t('nav.dashboard'), href: route('dashboard'), active: ['dashboard'] },
+            { icon: Boxes, name: t('nav.inventory'), href: route('products.index'), active: ['products.*'], perm: 'view_products' },
+            { icon: ShoppingCart, name: t('nav.orders'), href: route('orders.index'), active: ['orders.*'], perm: 'view_orders' },
+            { icon: CalendarDays, name: t('nav.weeklySales'), href: route('weekly-sales.index'), active: ['weekly-sales.*'], perm: 'view_orders' },
+            { icon: Undo2, name: t('nav.returns'), href: route('returns.index'), active: ['returns.*'], perm: 'manage_returns' },
+            { icon: ClipboardList, name: t('nav.purchaseOrders'), href: route('purchase-orders.index'), active: ['purchase-orders.*'], perm: 'view_purchase_orders' },
+            { icon: Truck, name: t('nav.suppliers'), href: route('suppliers.index'), active: ['suppliers.*'], perm: 'view_suppliers' },
         ],
     },
     {
-        label: 'Catalog',
+        label: t('nav.sections.catalog'),
         items: [
-            { icon: Tag, name: 'Categories', href: route('categories.index'), active: ['categories.*'], perm: 'manage_categories' },
-            { icon: MapPin, name: 'Locations', href: route('locations.index'), active: ['locations.*'], perm: 'manage_locations' },
-            { icon: Warehouse, name: 'Warehouses', href: route('warehouses.index'), active: ['warehouses.*'], perm: 'manage_warehouses' },
+            { icon: Tag, name: t('nav.categories'), href: route('categories.index'), active: ['categories.*'], perm: 'manage_categories' },
+            { icon: MapPin, name: t('nav.locations'), href: route('locations.index'), active: ['locations.*'], perm: 'manage_locations' },
+            { icon: Warehouse, name: t('nav.warehouses'), href: route('warehouses.index'), active: ['warehouses.*'], perm: 'manage_warehouses' },
         ],
     },
     {
-        label: 'Stock',
+        label: t('nav.sections.stock'),
         items: [
-            { icon: ArrowLeftRight, name: 'Stock Transfers', href: route('stock-transfers.index'), active: ['stock-transfers.*'], perm: 'view_stock_transfers' },
-            { icon: ScanLine, name: 'Stock Audits', href: route('stock-audits.index'), active: ['stock-audits.*'], perm: 'view_stock_audits' },
-            { icon: Hammer, name: 'Work Orders', href: route('work-orders.index'), active: ['work-orders.*'], perm: 'manage_stock' },
+            { icon: ArrowLeftRight, name: t('nav.stockTransfers'), href: route('stock-transfers.index'), active: ['stock-transfers.*'], perm: 'view_stock_transfers' },
+            { icon: ScanLine, name: t('nav.stockAudits'), href: route('stock-audits.index'), active: ['stock-audits.*'], perm: 'view_stock_audits' },
+            { icon: Hammer, name: t('nav.workOrders'), href: route('work-orders.index'), active: ['work-orders.*'], perm: 'manage_stock' },
         ],
     },
     {
-        label: 'Insights',
+        label: t('nav.sections.insights'),
         items: [
-            { icon: FileSpreadsheet, name: 'Import / Export', href: route('import-export.index'), active: ['import-export.*'], perm: 'manage_import_export' },
-            { icon: BarChart3, name: 'Reports', href: route('reports.index'), active: ['reports.*'], perm: 'view_reports' },
+            { icon: FileSpreadsheet, name: t('nav.importExport'), href: route('import-export.index'), active: ['import-export.*'], perm: 'manage_import_export' },
+            { icon: BarChart3, name: t('nav.reports'), href: route('reports.index'), active: ['reports.*'], perm: 'view_reports' },
         ],
     },
     {
-        label: 'Admin',
+        label: t('nav.sections.admin'),
         items: [
-            { icon: Users, name: 'Users', href: route('users.index'), active: ['users.*'], perm: 'manage_users' },
-            { icon: ShieldCheck, name: 'Roles', href: route('roles.index'), active: ['roles.*'], perm: 'manage_roles' },
-            { icon: Puzzle, name: 'Plugins', href: route('plugins.index'), active: ['plugins.*'], perm: 'manage_plugins' },
-            { icon: Settings2, name: 'Settings', href: route('settings.account.index'), active: ['settings.*', 'webhooks.*', 'account.*'] },
+            { icon: Users, name: t('nav.users'), href: route('users.index'), active: ['users.*'], perm: 'manage_users' },
+            { icon: ShieldCheck, name: t('nav.roles'), href: route('roles.index'), active: ['roles.*'], perm: 'manage_roles' },
+            { icon: Puzzle, name: t('nav.plugins'), href: route('plugins.index'), active: ['plugins.*'], perm: 'manage_plugins' },
+            { icon: Settings2, name: t('nav.settings'), href: route('settings.account.index'), active: ['settings.*', 'webhooks.*', 'account.*'] },
         ],
     },
 ]);
@@ -196,7 +199,7 @@ const isActive = (item) => item.active.some((pattern) => route().current(pattern
                            transition-colors ds-focus-ring"
                 >
                     <Search :size="13" />
-                    <span class="flex-1 text-left">Search…</span>
+                    <span class="flex-1 text-left">{{ t('common.search') }}…</span>
                     <kbd class="hidden md:inline px-1.5 py-0.5 rounded bg-surface-overlay text-[10px] font-mono text-text-secondary border border-border-subtle">
                         ⌘K
                     </kbd>
@@ -261,6 +264,7 @@ const isActive = (item) => item.active.some((pattern) => route().current(pattern
                     </slot>
                 </div>
                 <div class="flex items-center gap-1 shrink-0">
+                    <LanguageSwitcher />
                     <WarehouseSwitcher />
                     <ThemeToggle />
                     <NotificationDropdown />

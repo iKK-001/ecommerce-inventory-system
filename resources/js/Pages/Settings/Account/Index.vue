@@ -6,8 +6,9 @@ import Button from '@/Components/ui/Button.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { availableLocales, setLocale } from '@/i18n';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 
 const props = defineProps({
     user: Object,
@@ -62,9 +63,13 @@ const submitNotifications = () => {
 const userPrefs = notificationPrefs.preferences || {};
 const preferencesForm = useForm({
     theme: userPrefs.theme || 'dark',
-    language: userPrefs.language || 'en',
+    language: userPrefs.language || locale.value || 'en',
     items_per_page: userPrefs.items_per_page || 25,
 });
+
+const applyLanguagePreference = () => {
+    setLocale(preferencesForm.language);
+};
 
 const submitPreferences = () => {
     preferencesForm.patch(route('settings.account.update.preferences'), {
@@ -90,15 +95,15 @@ const toggles = [
     <AppLayout>
         <template #header>
             <div class="flex items-center gap-2 text-xs">
-                <Link :href="route('settings.account.index')" class="text-text-tertiary hover:text-text-primary">Workspace</Link>
+                <Link :href="route('settings.account.index')" class="text-text-tertiary hover:text-text-primary">{{ t('nav.sections.workspace') }}</Link>
                 <span class="text-text-tertiary">/</span>
-                <Link :href="route('settings.account.index')" class="text-text-tertiary hover:text-text-primary">Settings</Link>
+                <Link :href="route('settings.account.index')" class="text-text-tertiary hover:text-text-primary">{{ t('settings.title') }}</Link>
                 <span class="text-text-tertiary">/</span>
-                <span class="font-medium text-text-primary">Account</span>
+                <span class="font-medium text-text-primary">{{ t('nav.account') }}</span>
             </div>
         </template>
 
-        <PageHeader :title="t('settings.account.title')" description="Manage your profile, password, notifications, and preferences." />
+        <PageHeader :title="t('settings.account.title')" :description="t('settings.account.description')" />
 
         <!-- Tabs -->
         <div class="mt-6 border-b border-border-subtle">
@@ -329,10 +334,11 @@ const toggles = [
                                     id="language"
                                     v-model="preferencesForm.language"
                                     :class="fieldInput"
+                                    @change="applyLanguagePreference"
                                 >
-                                    <option value="en">English</option>
-                                    <option value="es">Spanish</option>
-                                    <option value="fr">French</option>
+                                    <option v-for="loc in availableLocales" :key="loc.code" :value="loc.code">
+                                        {{ loc.name }}
+                                    </option>
                                 </select>
                                 <p v-if="preferencesForm.errors.language" :class="fieldError">{{ preferencesForm.errors.language }}</p>
                             </div>

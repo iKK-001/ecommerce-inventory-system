@@ -29,8 +29,10 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
 <template>
     <div ref="dropdownRef" class="relative">
         <button
+            type="button"
             @click="isOpen = !isOpen"
-            class="flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:text-gray-200 rounded-lg hover:bg-surface-canvas/50 transition"
+            :aria-label="`Language: ${currentLocale().name}`"
+            class="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-text-secondary transition hover:bg-surface-overlay hover:text-text-primary ds-focus-ring"
         >
             <span class="text-base">{{ currentLocale().flag }}</span>
             <span class="hidden sm:inline">{{ currentLocale().name }}</span>
@@ -49,17 +51,18 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
         >
             <div
                 v-if="isOpen"
-                class="absolute right-0 bottom-full mb-2 w-48 bg-surface-raised border border-border-subtle rounded-lg shadow-xl overflow-hidden z-50 max-h-80 overflow-y-auto"
+                class="absolute right-0 top-full mt-2 z-50 max-h-80 w-48 overflow-y-auto rounded-lg border border-border-subtle bg-surface-raised shadow-xl"
             >
                 <button
                     v-for="loc in availableLocales"
                     :key="loc.code"
+                    type="button"
                     @click="switchLocale(loc.code)"
                     :class="[
                         'w-full flex items-center gap-3 px-4 py-2.5 text-sm transition',
                         locale === loc.code
                             ? 'bg-brand/10 text-brand'
-                            : 'text-gray-400 hover:text-gray-200 hover:bg-surface-canvas/50'
+                            : 'text-text-secondary hover:bg-surface-overlay hover:text-text-primary'
                     ]"
                 >
                     <span class="text-base">{{ loc.flag }}</span>

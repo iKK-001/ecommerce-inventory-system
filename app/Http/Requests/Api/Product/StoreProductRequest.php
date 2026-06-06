@@ -27,6 +27,9 @@ final class StoreProductRequest extends FormRequest
             'price' => ['nullable', 'numeric', 'min:0'],
             'selling_price' => ['nullable', 'numeric', 'min:0'],
             'purchase_price' => ['nullable', 'numeric', 'min:0'],
+            'packaging_cost_cny' => ['nullable', 'numeric', 'min:0'],
+            'last_mile_cost_usd' => ['nullable', 'numeric', 'min:0'],
+            'packing_labor_cost_cny' => ['nullable', 'numeric', 'min:0'],
             'currency' => ['nullable', 'string', 'max:3'],
             'stock' => ['nullable', 'integer', 'min:0'],
             'min_stock' => ['nullable', 'integer', 'min:0'],
@@ -36,6 +39,7 @@ final class StoreProductRequest extends FormRequest
             'category_id' => ['nullable', 'integer', Rule::exists('product_categories', 'id')->where('organization_id', $organizationId)],
             'location_id' => ['nullable', 'integer', Rule::exists('product_locations', 'id')->where('organization_id', $organizationId)],
             'is_active' => ['nullable', 'boolean'],
+            'is_sellable' => ['nullable', 'boolean'],
             'tracking_type' => ['nullable', 'string', 'in:none,batch,serial'],
             'metadata' => ['nullable', 'array'],
         ];

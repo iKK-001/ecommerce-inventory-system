@@ -205,10 +205,10 @@ const getEffectivePurchasePrice = (variant) => {
         <div>
             <div class="flex items-center justify-between mb-4">
                 <h4 class="text-md font-semibold text-gray-900 dark:text-gray-100">
-                    Product Options
+                    {{ t('products.variants.optionsTitle') }}
                 </h4>
                 <span class="text-sm text-gray-500 dark:text-gray-400">
-                    {{ options.length }}/{{ MAX_OPTIONS }} options
+                    {{ options.length }}/{{ MAX_OPTIONS }} {{ t('products.variants.optionsUnit') }}
                 </span>
             </div>
 
@@ -255,7 +255,7 @@ const getEffectivePurchasePrice = (variant) => {
                         <!-- Add value input -->
                         <input
                             type="text"
-                            placeholder="Add value..."
+                            :placeholder="t('products.variants.addValuePlaceholder')"
                             class="px-3 py-1 text-sm bg-white dark:bg-surface-raised border border-gray-200 dark:border-border-subtle rounded-full text-gray-900 dark:text-gray-100 w-32"
                             :disabled="disabled"
                             @keyup.enter="addValueToOption(optIndex, $event.target.value); $event.target.value = ''"
@@ -269,24 +269,24 @@ const getEffectivePurchasePrice = (variant) => {
                 <div class="space-y-3">
                     <div>
                         <label class="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
-                            Option Name
+                            {{ t('products.variants.optionName') }}
                         </label>
                         <input
                             v-model="newOptionName"
                             type="text"
-                            placeholder="e.g., Size, Color, Material"
+                            :placeholder="t('products.variants.optionNamePlaceholder')"
                             class="block w-full rounded-md bg-white dark:bg-surface-raised border-gray-200 dark:border-border-subtle text-gray-900 dark:text-gray-100 shadow-sm focus:border-brand focus:ring-brand"
                             :disabled="disabled"
                         />
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
-                            Option Values (comma-separated)
+                            {{ t('products.variants.optionValues') }}
                         </label>
                         <input
                             v-model="newOptionValues"
                             type="text"
-                            placeholder="e.g., Small, Medium, Large"
+                            :placeholder="t('products.variants.optionValuesPlaceholder')"
                             class="block w-full rounded-md bg-white dark:bg-surface-raised border-gray-200 dark:border-border-subtle text-gray-900 dark:text-gray-100 shadow-sm focus:border-brand focus:ring-brand"
                             :disabled="disabled"
                         />
@@ -298,7 +298,7 @@ const getEffectivePurchasePrice = (variant) => {
                             :disabled="disabled || !newOptionName || !newOptionValues"
                             class="px-4 py-2 bg-brand text-white rounded-md hover:bg-brand-hover disabled:opacity-50"
                         >
-                            Add Option
+                            {{ t('products.variants.addOption') }}
                         </button>
                         <button
                             type="button"
@@ -322,15 +322,14 @@ const getEffectivePurchasePrice = (variant) => {
                 <svg class="w-6 h-6 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                 </svg>
-                Add Option (e.g., Size, Color)
+                {{ t('products.variants.addOptionCta') }}
             </button>
         </div>
 
         <!-- Variant Limit Warning -->
         <div v-if="exceedsVariantLimit" class="p-4 bg-red-900/20 border border-red-800 rounded-lg">
             <p class="text-red-400 text-sm">
-                Warning: Current options would create {{ variantCount }} variants, exceeding the limit of {{ MAX_VARIANTS }}.
-                Please reduce the number of option values.
+                {{ t('products.variants.limitWarning', { count: variantCount, max: MAX_VARIANTS }) }}
             </p>
         </div>
 
@@ -338,7 +337,7 @@ const getEffectivePurchasePrice = (variant) => {
         <div v-if="hasOptions && !exceedsVariantLimit">
             <div class="flex items-center justify-between mb-4">
                 <h4 class="text-md font-semibold text-gray-900 dark:text-gray-100">
-                    Variants ({{ variants.length }})
+                    {{ t('products.variants.variantsTitle', { count: variants.length }) }}
                 </h4>
             </div>
 
@@ -348,16 +347,16 @@ const getEffectivePurchasePrice = (variant) => {
                     <thead class="bg-gray-50 dark:bg-surface-canvas">
                         <tr>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                                Variant
+                                {{ t('products.variants.variant') }}
                             </th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                                 SKU
                             </th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                                Price
+                                {{ t('products.variants.price') }}
                             </th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                                Stock
+                                {{ t('products.variants.stock') }}
                             </th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                                 {{ t('common.active') }}
@@ -376,7 +375,7 @@ const getEffectivePurchasePrice = (variant) => {
                                     :value="variant.sku"
                                     @input="updateVariant(index, 'sku', $event.target.value)"
                                     type="text"
-                                    placeholder="Auto-generate"
+                                    :placeholder="t('products.variants.autoGenerate')"
                                     class="w-32 text-sm rounded-md bg-gray-50 dark:bg-surface-canvas border-gray-200 dark:border-border-subtle text-gray-900 dark:text-gray-100"
                                     :disabled="disabled"
                                 />
@@ -432,7 +431,7 @@ const getEffectivePurchasePrice = (variant) => {
                     :disabled="disabled"
                     class="text-brand hover:text-brand disabled:opacity-50"
                 >
-                    Enable All
+                    {{ t('products.variants.enableAll') }}
                 </button>
                 <button
                     type="button"
@@ -440,7 +439,7 @@ const getEffectivePurchasePrice = (variant) => {
                     :disabled="disabled"
                     class="text-brand hover:text-brand disabled:opacity-50"
                 >
-                    Disable All
+                    {{ t('products.variants.disableAll') }}
                 </button>
             </div>
         </div>
@@ -450,7 +449,7 @@ const getEffectivePurchasePrice = (variant) => {
             <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
             </svg>
-            <p>Add options like Size or Color to create product variants</p>
+            <p>{{ t('products.variants.emptyHint') }}</p>
         </div>
     </div>
 </template>

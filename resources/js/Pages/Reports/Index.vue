@@ -13,6 +13,7 @@ import {
     AlertTriangle,
     Tag,
     Wrench,
+    PackageSearch,
     ChevronRight,
     Plus,
 } from 'lucide-vue-next';
@@ -50,6 +51,12 @@ const reportCards = [
         icon: AlertTriangle,
         title: t('reports.lowStock.title'),
         description: t('reports.lowStock.description'),
+    },
+    {
+        href: route('reports.inventory-planning'),
+        icon: PackageSearch,
+        title: 'Inventory Planning',
+        description: 'Recent demand, in-transit stock, coverage days, and SKU margin.',
     },
     {
         href: route('reports.category-performance'),

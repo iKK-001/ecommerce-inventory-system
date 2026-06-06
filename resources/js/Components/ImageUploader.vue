@@ -35,20 +35,20 @@ const handleFiles = (files) => {
     const remainingSlots = props.maxImages - images.value.length;
     
     if (filesArray.length > remainingSlots) {
-        error.value = `You can only add ${remainingSlots} more image(s)`;
+        error.value = t('products.images.remainingSlots', { count: remainingSlots });
         return;
     }
 
     filesArray.forEach(file => {
         // Validate file type
         if (!file.type.startsWith('image/')) {
-            error.value = 'Only image files are allowed';
+            error.value = t('products.images.imageOnly');
             return;
         }
 
         // Validate file size
         if (file.size > props.maxSizeInMB * 1024 * 1024) {
-            error.value = `Images must be less than ${props.maxSizeInMB}MB`;
+            error.value = t('products.images.maxSize', { size: props.maxSizeInMB });
             return;
         }
 
@@ -126,10 +126,10 @@ const formatFileSize = (bytes) => {
             </svg>
 
             <p class="text-gray-600 dark:text-gray-300 mb-2">
-                Drag and drop images here, or click to browse
+                {{ t('products.images.uploadPrompt') }}
             </p>
             <p class="text-sm text-gray-500 dark:text-gray-400">
-                Max {{ maxImages }} images, up to {{ maxSizeInMB }}MB each ({{ images.length }}/{{ maxImages }})
+                {{ t('products.images.uploadLimit', { max: maxImages, size: maxSizeInMB, current: images.length }) }}
             </p>
         </div>
 
@@ -155,7 +155,7 @@ const formatFileSize = (bytes) => {
                     
                     <!-- Primary Badge -->
                     <div v-if="index === 0" class="absolute top-2 left-2 px-2 py-1 bg-brand text-white text-xs font-semibold rounded">
-                        Primary
+                        {{ t('products.images.primary') }}
                     </div>
 
                     <!-- Overlay on hover -->
@@ -166,7 +166,7 @@ const formatFileSize = (bytes) => {
                             @click="moveImage(index, index - 1)"
                             type="button"
                             class="p-2 bg-white dark:bg-surface-raised rounded-full hover:bg-gray-100 dark:hover:bg-surface-canvas transition"
-                            title="Move left"
+                            :title="t('products.images.moveLeft')"
                         >
                             <svg class="w-5 h-5 text-gray-900 dark:text-gray-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
@@ -178,7 +178,7 @@ const formatFileSize = (bytes) => {
                             @click="removeImage(index)"
                             type="button"
                             class="p-2 bg-red-600 rounded-full hover:bg-red-700 transition"
-                            title="Remove"
+                            :title="t('products.images.remove')"
                         >
                             <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -191,7 +191,7 @@ const formatFileSize = (bytes) => {
                             @click="moveImage(index, index + 1)"
                             type="button"
                             class="p-2 bg-white dark:bg-surface-raised rounded-full hover:bg-gray-100 dark:hover:bg-surface-canvas transition"
-                            title="Move right"
+                            :title="t('products.images.moveRight')"
                         >
                             <svg class="w-5 h-5 text-gray-900 dark:text-gray-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
@@ -215,7 +215,7 @@ const formatFileSize = (bytes) => {
         <!-- Instructions -->
         <div v-if="images.length === 0" class="text-center p-4 bg-gray-50 dark:bg-surface-canvas rounded-lg">
             <p class="text-sm text-gray-600 dark:text-gray-400">
-                No images uploaded yet. The first image will be used as the primary product image.
+                {{ t('products.images.empty') }}
             </p>
         </div>
     </div>

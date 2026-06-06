@@ -30,10 +30,13 @@ use Illuminate\Support\Carbon;
  * @property string $status
  * @property Carbon|null $order_date
  * @property Carbon|null $expected_date
+ * @property string|null $shipping_method
  * @property Carbon|null $received_date
  * @property string $subtotal
  * @property string $tax
  * @property string $shipping
+ * @property string $domestic_freight_cny
+ * @property string $first_leg_freight_cny
  * @property string $total
  * @property string|null $currency
  * @property string|null $notes
@@ -61,10 +64,13 @@ class PurchaseOrder extends Model
         'status',
         'order_date',
         'expected_date',
+        'shipping_method',
         'received_date',
         'subtotal',
         'tax',
         'shipping',
+        'domestic_freight_cny',
+        'first_leg_freight_cny',
         'total',
         'currency',
         'notes',
@@ -78,6 +84,8 @@ class PurchaseOrder extends Model
         'subtotal' => 'decimal:2',
         'tax' => 'decimal:2',
         'shipping' => 'decimal:2',
+        'domestic_freight_cny' => 'decimal:2',
+        'first_leg_freight_cny' => 'decimal:2',
         'total' => 'decimal:2',
         'metadata' => 'array',
         'created_at' => 'datetime',

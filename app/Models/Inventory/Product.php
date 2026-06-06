@@ -35,6 +35,10 @@ use Illuminate\Support\Carbon;
  * @property string|null $currency
  * @property array|null $price_in_currencies
  * @property string|null $purchase_price
+ * @property string $weighted_average_cost_cny
+ * @property string $packaging_cost_cny
+ * @property string $last_mile_cost_usd
+ * @property string $packing_labor_cost_cny
  * @property int $stock
  * @property int|null $min_stock
  * @property int|null $max_stock
@@ -48,6 +52,7 @@ use Illuminate\Support\Carbon;
  * @property int|null $category_id
  * @property int|null $location_id
  * @property bool $is_active
+ * @property bool $is_sellable
  * @property bool $has_variants
  * @property array|null $metadata
  * @property Carbon|null $created_at
@@ -87,6 +92,10 @@ class Product extends Model
         'currency',
         'price_in_currencies',
         'purchase_price',
+        'weighted_average_cost_cny',
+        'packaging_cost_cny',
+        'last_mile_cost_usd',
+        'packing_labor_cost_cny',
         'stock',
         'min_stock',
         'max_stock',
@@ -100,6 +109,7 @@ class Product extends Model
         'category_id',
         'location_id',
         'is_active',
+        'is_sellable',
         'has_variants',
         'tracking_type',
         'metadata',
@@ -116,12 +126,17 @@ class Product extends Model
             'price' => 'decimal:2',
             'selling_price' => 'decimal:2',
             'purchase_price' => 'decimal:2',
+            'weighted_average_cost_cny' => 'decimal:4',
+            'packaging_cost_cny' => 'decimal:4',
+            'last_mile_cost_usd' => 'decimal:4',
+            'packing_labor_cost_cny' => 'decimal:4',
             'stock' => 'integer',
             'min_stock' => 'integer',
             'max_stock' => 'integer',
             'reorder_point' => 'integer',
             'reorder_quantity' => 'integer',
             'is_active' => 'boolean',
+            'is_sellable' => 'boolean',
             'has_variants' => 'boolean',
             'tracking_type' => TrackingType::class,
             'metadata' => 'array',

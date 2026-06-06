@@ -8,6 +8,7 @@ use App\Exceptions\InsufficientStockException;
 use App\Exceptions\InvalidOrderItemException;
 use App\Models\Auth\Organization;
 use App\Models\Inventory\Product;
+use App\Models\Inventory\ProductComponent;
 use App\Models\Inventory\ProductVariant;
 use App\Models\Inventory\StockAdjustment;
 use App\Models\Order\Order;
@@ -256,6 +257,113 @@ class OrderServiceTest extends TestCase
             ]), $this->creator);
         } finally {
             $this->assertSame(5, (int) $variant->fresh()->stock);
+            $this->assertSame(0, Order::where('source', 'manual')->count());
+        }
+    }
+
+    public function test_kit_line_consumes_component_stock_not_virtual_kit_stock(): void
+    {
+        $base = Product::create([
+            'organization_id' => $this->organization->id,
+            'sku' => 'TOY-BASE',
+            'name' => 'Toy Base Unit',
+            'price' => 5.00,
+            'currency' => 'USD',
+            'stock' => 20,
+            'min_stock' => 0,
+            'is_active' => true,
+        ]);
+        $threePack = Product::create([
+            'organization_id' => $this->organization->id,
+            'type' => 'kit',
+            'sku' => 'TOY-3PK',
+            'name' => 'Toy 3 Pack',
+            'price' => 18.00,
+            'currency' => 'USD',
+            'stock' => 0,
+            'min_stock' => 0,
+            'is_active' => true,
+        ]);
+        ProductComponent::create([
+            'parent_product_id' => $threePack->id,
+            'component_product_id' => $base->id,
+            'quantity' => 3,
+        ]);
+
+        $order = $this->service()->create($this->payload([
+            'items' => [
+                ['product_id' => $threePack->id, 'quantity' => 2],
+            ],
+        ]), $this->creator);
+
+        $this->assertSame(14, (int) $base->fresh()->stock);
+        $this->assertSame(0, (int) $threePack->fresh()->stock);
+        $this->assertSame($threePack->id, $order->items()->first()->product_id);
+
+        $adjustment = StockAdjustment::where('reference_id', $order->id)->firstOrFail();
+        $this->assertSame($base->id, $adjustment->product_id);
+        $this->assertSame(-6, (int) $adjustment->adjustment_quantity);
+        $this->assertSame(20, (int) $adjustment->quantity_before);
+        $this->assertSame(14, (int) $adjustment->quantity_after);
+    }
+
+    public function test_shared_component_demand_is_validated_before_any_stock_changes(): void
+    {
+        $base = Product::create([
+            'organization_id' => $this->organization->id,
+            'sku' => 'SHARED-BASE',
+            'name' => 'Shared Base Unit',
+            'price' => 5.00,
+            'currency' => 'USD',
+            'stock' => 7,
+            'min_stock' => 0,
+            'is_active' => true,
+        ]);
+
+        $twoPack = Product::create([
+            'organization_id' => $this->organization->id,
+            'type' => 'kit',
+            'sku' => 'SHARED-2PK',
+            'name' => 'Shared 2 Pack',
+            'price' => 12.00,
+            'currency' => 'USD',
+            'stock' => 0,
+            'min_stock' => 0,
+            'is_active' => true,
+        ]);
+        $threePack = Product::create([
+            'organization_id' => $this->organization->id,
+            'type' => 'kit',
+            'sku' => 'SHARED-3PK',
+            'name' => 'Shared 3 Pack',
+            'price' => 18.00,
+            'currency' => 'USD',
+            'stock' => 0,
+            'min_stock' => 0,
+            'is_active' => true,
+        ]);
+        ProductComponent::create([
+            'parent_product_id' => $twoPack->id,
+            'component_product_id' => $base->id,
+            'quantity' => 2,
+        ]);
+        ProductComponent::create([
+            'parent_product_id' => $threePack->id,
+            'component_product_id' => $base->id,
+            'quantity' => 3,
+        ]);
+
+        $this->expectException(InsufficientStockException::class);
+
+        try {
+            $this->service()->create($this->payload([
+                'items' => [
+                    ['product_id' => $twoPack->id, 'quantity' => 2],
+                    ['product_id' => $threePack->id, 'quantity' => 2],
+                ],
+            ]), $this->creator);
+        } finally {
+            $this->assertSame(7, (int) $base->fresh()->stock);
             $this->assertSame(0, Order::where('source', 'manual')->count());
         }
     }

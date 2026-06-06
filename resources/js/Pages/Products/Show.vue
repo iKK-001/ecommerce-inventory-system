@@ -246,7 +246,7 @@ const fieldInput = 'h-9 w-full rounded-md border border-border-subtle bg-surface
     <AppLayout>
         <template #header>
             <div class="flex items-center gap-2 text-xs">
-                <Link :href="route('products.index')" class="text-text-tertiary hover:text-text-primary">Workspace</Link>
+                <Link :href="route('products.index')" class="text-text-tertiary hover:text-text-primary">{{ t('nav.sections.workspace') }}</Link>
                 <span class="text-text-tertiary">/</span>
                 <Link :href="route('products.index')" class="text-text-tertiary hover:text-text-primary">{{ t('products.title') }}</Link>
                 <span class="text-text-tertiary">/</span>
@@ -258,7 +258,7 @@ const fieldInput = 'h-9 w-full rounded-md border border-border-subtle bg-surface
             <template #actions>
                 <Button variant="secondary" size="sm" @click="duplicateProduct">
                     <Copy :size="14" />
-                    Duplicate
+                    {{ t('products.actions.duplicate') }}
                 </Button>
                 <Button variant="default" size="sm" as="Link" :href="route('products.edit', product.id)">
                     <Pencil :size="14" />
@@ -313,7 +313,7 @@ const fieldInput = 'h-9 w-full rounded-md border border-border-subtle bg-surface
                                 <h3 class="text-lg font-semibold text-text-primary">{{ product.name }}</h3>
                                 <div v-if="product.type && product.type !== 'standard'" class="mt-1">
                                     <Badge :variant="product.type === 'kit' ? 'info' : 'brand'" size="sm">
-                                        {{ product.type === 'kit' ? 'Kit' : 'Assembly' }}
+                                        {{ product.type === 'kit' ? t('products.create.kit') : t('products.create.assembly') }}
                                     </Badge>
                                 </div>
                                 <p class="mt-1 text-sm text-text-tertiary">SKU: {{ product.sku }}</p>
@@ -444,14 +444,14 @@ const fieldInput = 'h-9 w-full rounded-md border border-border-subtle bg-surface
                 <Card v-if="isKitOrAssembly" :padded="false">
                     <div class="flex items-center justify-between px-5 pt-5">
                         <div class="flex items-center gap-3">
-                            <h3 class="text-sm font-semibold text-text-primary">Bill of Materials</h3>
+                            <h3 class="text-sm font-semibold text-text-primary">{{ t('products.show.billOfMaterials') }}</h3>
                             <Badge :variant="product.type === 'kit' ? 'info' : 'brand'" size="sm">
-                                {{ product.type === 'kit' ? 'Kit' : 'Assembly' }}
+                                {{ product.type === 'kit' ? t('products.create.kit') : t('products.create.assembly') }}
                             </Badge>
                         </div>
                         <Button variant="default" size="sm" @click="showAddComponent = !showAddComponent">
                             <Plus :size="14" />
-                            Add Component
+                            {{ t('products.show.addComponent') }}
                         </Button>
                     </div>
                     <div class="p-5">
@@ -459,7 +459,7 @@ const fieldInput = 'h-9 w-full rounded-md border border-border-subtle bg-surface
                         <div v-if="product.type === 'kit' && components.length > 0" class="mb-4 flex items-center justify-between rounded-lg border border-status-info/20 bg-status-info-soft p-3">
                             <span class="flex items-center gap-2 text-sm text-status-info">
                                 <Info :size="16" class="shrink-0" />
-                                Available Kit Stock (limited by lowest component)
+                                {{ t('products.show.availableKitStock') }}
                             </span>
                             <span class="text-lg font-bold text-status-info">{{ availableKitStock }}</span>
                         </div>
@@ -468,20 +468,20 @@ const fieldInput = 'h-9 w-full rounded-md border border-border-subtle bg-surface
                         <div v-if="product.type === 'assembly' && components.length > 0" class="mb-4">
                             <Button variant="default" size="md" as="Link" :href="route('work-orders.create', { product_id: product.id })">
                                 <Settings2 :size="16" />
-                                Create Work Order
+                                {{ t('products.show.createWorkOrder') }}
                             </Button>
                         </div>
 
                         <!-- Add Component Form -->
                         <div v-if="showAddComponent" class="mb-4 rounded-lg border border-border-subtle bg-surface-canvas p-4">
-                            <h4 class="mb-3 text-sm font-medium text-text-primary">Add Component</h4>
+                            <h4 class="mb-3 text-sm font-medium text-text-primary">{{ t('products.show.addComponent') }}</h4>
                             <div class="flex items-end gap-3">
                                 <div class="relative flex-1">
-                                    <label class="mb-1 block text-xs text-text-tertiary">Search Product</label>
+                                    <label class="mb-1 block text-xs text-text-tertiary">{{ t('products.show.searchProduct') }}</label>
                                     <input
                                         v-model="componentSearch"
                                         type="text"
-                                        placeholder="Search by name or SKU..."
+                                        :placeholder="t('products.show.searchProductPlaceholder')"
                                         :class="fieldInput"
                                         @input="searchComponents"
                                     />
@@ -496,15 +496,15 @@ const fieldInput = 'h-9 w-full rounded-md border border-border-subtle bg-surface
                                         >
                                             <span class="text-text-primary">{{ result.name }}</span>
                                             <span class="ml-2 text-text-tertiary">{{ result.sku }}</span>
-                                            <span class="ml-2 text-text-tertiary">(Stock: {{ result.stock }})</span>
+                                            <span class="ml-2 text-text-tertiary">({{ t('products.show.stockLabel', { count: result.stock }) }})</span>
                                         </button>
                                     </div>
                                     <div v-if="componentSearching" class="absolute z-10 mt-1 w-full rounded-lg border border-border-subtle bg-surface-raised p-3 text-center shadow-lg">
-                                        <span class="text-sm text-text-tertiary">Searching...</span>
+                                        <span class="text-sm text-text-tertiary">{{ t('products.show.searching') }}</span>
                                     </div>
                                 </div>
                                 <div class="w-28">
-                                    <label class="mb-1 block text-xs text-text-tertiary">Quantity</label>
+                                    <label class="mb-1 block text-xs text-text-tertiary">{{ t('common.quantity') }}</label>
                                     <input
                                         v-model.number="newComponentQty"
                                         type="number"
@@ -513,10 +513,10 @@ const fieldInput = 'h-9 w-full rounded-md border border-border-subtle bg-surface
                                     />
                                 </div>
                                 <Button type="button" variant="default" @click="addComponent" :disabled="!selectedComponent">
-                                    Add
+                                    {{ t('common.add') }}
                                 </Button>
                                 <Button type="button" variant="secondary" @click="showAddComponent = false">
-                                    Cancel
+                                    {{ t('common.cancel') }}
                                 </Button>
                             </div>
                         </div>
@@ -526,18 +526,18 @@ const fieldInput = 'h-9 w-full rounded-md border border-border-subtle bg-surface
                             <table class="min-w-full">
                                 <thead>
                                     <tr class="border-b border-border-subtle">
-                                        <th :class="thClass">Product</th>
+                                        <th :class="thClass">{{ t('common.product') }}</th>
                                         <th :class="thClass">SKU</th>
-                                        <th :class="[thClass, 'text-center']">Qty Required</th>
-                                        <th :class="[thClass, 'text-center']">Available Stock</th>
-                                        <th :class="[thClass, 'text-right']">Actions</th>
+                                        <th :class="[thClass, 'text-center']">{{ t('products.show.qtyRequired') }}</th>
+                                        <th :class="[thClass, 'text-center']">{{ t('products.show.availableStock') }}</th>
+                                        <th :class="[thClass, 'text-right']">{{ t('common.actions') }}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <tr v-for="comp in components" :key="comp.id" class="border-b border-border-subtle transition-colors last:border-b-0 hover:bg-surface-overlay">
                                         <td class="px-4 py-3">
                                             <Link :href="route('products.show', comp.component?.id || comp.component_product_id)" class="text-sm font-medium text-brand hover:underline">
-                                                {{ comp.component?.name || 'Unknown' }}
+                                                {{ comp.component?.name || t('common.unknown') }}
                                             </Link>
                                         </td>
                                         <td class="px-4 py-3 text-sm text-text-tertiary">
@@ -567,12 +567,12 @@ const fieldInput = 'h-9 w-full rounded-md border border-border-subtle bg-surface
                                         <td class="px-4 py-3 text-right">
                                             <div class="flex justify-end gap-2">
                                                 <template v-if="editingComponentId === comp.id">
-                                                    <button @click="saveComponentQty(comp)" class="text-sm text-status-success hover:underline">Save</button>
-                                                    <button @click="editingComponentId = null" class="text-sm text-text-tertiary hover:text-text-primary">Cancel</button>
+                                                    <button @click="saveComponentQty(comp)" class="text-sm text-status-success hover:underline">{{ t('common.save') }}</button>
+                                                    <button @click="editingComponentId = null" class="text-sm text-text-tertiary hover:text-text-primary">{{ t('common.cancel') }}</button>
                                                 </template>
                                                 <template v-else>
-                                                    <button @click="startEditComponent(comp)" class="text-sm text-brand hover:underline">Edit</button>
-                                                    <button @click="removeComponent(comp)" class="text-sm text-status-danger hover:underline">Remove</button>
+                                                    <button @click="startEditComponent(comp)" class="text-sm text-brand hover:underline">{{ t('common.edit') }}</button>
+                                                    <button @click="removeComponent(comp)" class="text-sm text-status-danger hover:underline">{{ t('common.remove') }}</button>
                                                 </template>
                                             </div>
                                         </td>
@@ -584,8 +584,8 @@ const fieldInput = 'h-9 w-full rounded-md border border-border-subtle bg-surface
                         <!-- Empty State -->
                         <div v-else class="flex flex-col items-center gap-2 py-8 text-center">
                             <Package :size="22" class="text-text-tertiary" />
-                            <p class="text-sm text-text-tertiary">No components added yet.</p>
-                            <p class="text-xs text-text-tertiary">Click "Add Component" to build the bill of materials.</p>
+                            <p class="text-sm text-text-tertiary">{{ t('products.show.noComponents') }}</p>
+                            <p class="text-xs text-text-tertiary">{{ t('products.show.noComponentsHint') }}</p>
                         </div>
                     </div>
                 </Card>

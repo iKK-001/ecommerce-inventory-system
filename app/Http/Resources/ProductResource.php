@@ -28,6 +28,8 @@ class ProductResource extends JsonResource
             'price' => $this->price,
             'selling_price' => $this->selling_price,
             'purchase_price' => $this->purchase_price,
+            'weighted_average_cost_cny' => $this->weighted_average_cost_cny,
+            'packaging_cost_cny' => $this->packaging_cost_cny,
             'currency' => $this->currency,
             'price_in_currencies' => $this->price_in_currencies,
             'stock' => $this->stock,

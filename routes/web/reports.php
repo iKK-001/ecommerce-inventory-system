@@ -17,6 +17,7 @@ Route::prefix('reports')->name('reports.')->middleware('permission:view_reports'
     Route::get('/stock-movement', [ReportController::class, 'stockMovement'])->name('stock-movement');
     Route::get('/sales-analysis', [ReportController::class, 'salesAnalysis'])->name('sales-analysis');
     Route::get('/low-stock', [ReportController::class, 'lowStock'])->name('low-stock');
+    Route::get('/inventory-planning', [ReportController::class, 'inventoryPlanning'])->name('inventory-planning');
     Route::get('/category-performance', [ReportController::class, 'categoryPerformance'])->name('category-performance');
 
     // Custom Report Builder

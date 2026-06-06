@@ -17,10 +17,15 @@ class ProductControllerTest extends TestCase
     use RefreshDatabase;
 
     protected User $admin;
+
     protected User $member;
+
     protected User $viewOnlyUser;
+
     protected Organization $organization;
+
     protected ProductCategory $category;
+
     protected ProductLocation $location;
 
     protected function setUp(): void
@@ -144,7 +149,7 @@ class ProductControllerTest extends TestCase
     {
         return Product::create(array_merge([
             'organization_id' => $this->organization->id,
-            'sku' => 'TEST-' . uniqid(),
+            'sku' => 'TEST-'.uniqid(),
             'name' => 'Test Product',
             'description' => 'A test product description',
             'price' => 99.99,
@@ -303,11 +308,15 @@ class ProductControllerTest extends TestCase
             'description' => 'A brand new product',
             'price' => 149.99,
             'purchase_price' => 75.00,
+            'packaging_cost_cny' => 3.25,
+            'packing_labor_cost_cny' => 1.50,
+            'last_mile_cost_usd' => 2.75,
             'currency' => 'USD',
             'stock' => 50,
             'min_stock' => 5,
             'max_stock' => 200,
             'is_active' => true,
+            'is_sellable' => false,
             'category_id' => $this->category->id,
             'location_id' => $this->location->id,
         ];
@@ -322,7 +331,39 @@ class ProductControllerTest extends TestCase
             'sku' => 'NEW-SKU-001',
             'name' => 'New Product',
             'organization_id' => $this->organization->id,
+            'packaging_cost_cny' => 3.25,
+            'packing_labor_cost_cny' => 1.50,
+            'last_mile_cost_usd' => 2.75,
+            'is_sellable' => false,
         ]);
+    }
+
+    public function test_product_cost_fields_default_to_zero_when_form_submits_empty_values(): void
+    {
+        $productData = [
+            'sku' => 'EMPTY-COST-SKU-001',
+            'name' => 'Empty Cost Product',
+            'price' => 99.99,
+            'currency' => 'USD',
+            'stock' => 25,
+            'min_stock' => 5,
+            'packaging_cost_cny' => '',
+            'packing_labor_cost_cny' => '',
+            'last_mile_cost_usd' => '',
+            'category_id' => $this->category->id,
+            'location_id' => $this->location->id,
+        ];
+
+        $response = $this->actingAs($this->admin)
+            ->post(route('products.store'), $productData);
+
+        $response->assertRedirect(route('products.index'));
+
+        $product = Product::where('sku', 'EMPTY-COST-SKU-001')->firstOrFail();
+
+        $this->assertSame('0.0000', (string) $product->packaging_cost_cny);
+        $this->assertSame('0.0000', (string) $product->packing_labor_cost_cny);
+        $this->assertSame('0.0000', (string) $product->last_mile_cost_usd);
     }
 
     public function test_member_can_create_product(): void
@@ -547,6 +588,9 @@ class ProductControllerTest extends TestCase
                 'stock' => 75,
                 'min_stock' => 15,
                 'is_active' => true,
+                'is_sellable' => false,
+                'packing_labor_cost_cny' => 1.25,
+                'last_mile_cost_usd' => 3.50,
             ]);
 
         $response->assertRedirect(route('products.index'));
@@ -557,6 +601,9 @@ class ProductControllerTest extends TestCase
             'name' => 'Updated Name',
             'price' => 199.99,
             'stock' => 75,
+            'is_sellable' => false,
+            'packing_labor_cost_cny' => 1.25,
+            'last_mile_cost_usd' => 3.50,
         ]);
     }
 
