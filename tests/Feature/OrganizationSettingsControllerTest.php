@@ -4,8 +4,10 @@ namespace Tests\Feature;
 
 use App\Models\Auth\Organization;
 use App\Models\Role;
+use App\Models\Setting;
 use App\Models\System\SystemSetting;
 use App\Models\User;
+use App\Services\SettingsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -14,7 +16,9 @@ class OrganizationSettingsControllerTest extends TestCase
     use RefreshDatabase;
 
     protected User $admin;
+
     protected User $member;
+
     protected Organization $organization;
 
     protected function setUp(): void
@@ -176,6 +180,55 @@ class OrganizationSettingsControllerTest extends TestCase
         $this->organization->refresh();
         $this->assertEquals('EUR', $this->organization->currency);
         $this->assertEquals('Europe/Paris', $this->organization->timezone);
+    }
+
+    public function test_admin_can_update_ai_minimax_settings_with_encrypted_api_key(): void
+    {
+        $response = $this->actingAs($this->admin)
+            ->patch(route('settings.organization.update.ai'), [
+                'minimax_api_key' => 'mini-secret-key',
+                'minimax_base_url' => 'https://api.minimax.io/v1',
+                'minimax_model' => 'MiniMax-M2.7',
+            ]);
+
+        $response->assertRedirect();
+        $response->assertSessionHas('success', 'AI settings updated successfully.');
+
+        $apiKeySetting = Setting::where('organization_id', $this->organization->id)
+            ->where('key', 'ai.minimax.api_key')
+            ->firstOrFail();
+
+        $this->assertTrue($apiKeySetting->encrypted);
+        $this->assertNotSame('mini-secret-key', $apiKeySetting->value);
+        $this->assertSame('mini-secret-key', SettingsService::get('ai.minimax.api_key'));
+        $this->assertSame('https://api.minimax.io/v1', SettingsService::get('ai.minimax.base_url'));
+        $this->assertSame('MiniMax-M2.7', SettingsService::get('ai.minimax.model'));
+
+        $this->actingAs($this->admin)
+            ->get(route('settings.organization.index'))
+            ->assertInertia(fn ($page) => $page
+                ->where('aiSettings.minimax_configured', true)
+                ->where('aiSettings.minimax_base_url', 'https://api.minimax.io/v1')
+                ->where('aiSettings.minimax_model', 'MiniMax-M2.7')
+                ->missing('aiSettings.minimax_api_key')
+            );
+    }
+
+    public function test_member_cannot_update_ai_minimax_settings(): void
+    {
+        $response = $this->actingAs($this->member)
+            ->patch(route('settings.organization.update.ai'), [
+                'minimax_api_key' => 'mini-secret-key',
+                'minimax_base_url' => 'https://api.minimax.io/v1',
+                'minimax_model' => 'MiniMax-M2.7',
+            ]);
+
+        $response->assertStatus(403);
+
+        $this->assertDatabaseMissing('settings', [
+            'organization_id' => $this->organization->id,
+            'key' => 'ai.minimax.api_key',
+        ]);
     }
 
     public function test_validation_fails_for_invalid_general_settings(): void

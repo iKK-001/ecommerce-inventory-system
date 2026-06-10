@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Auth\Organization;
 use App\Models\System\SystemSetting;
 use App\Models\User;
+use App\Services\SettingsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
@@ -14,6 +15,7 @@ class AccountSettingsControllerTest extends TestCase
     use RefreshDatabase;
 
     protected User $user;
+
     protected Organization $organization;
 
     protected function setUp(): void
@@ -55,6 +57,32 @@ class AccountSettingsControllerTest extends TestCase
             ->component('Settings/Account/Index')
             ->has('user')
         );
+    }
+
+    public function test_account_settings_includes_ai_settings_entry_data(): void
+    {
+        $admin = User::create([
+            'name' => 'Admin User',
+            'email' => 'admin@example.com',
+            'password' => Hash::make('password'),
+            'organization_id' => $this->organization->id,
+            'role' => 'admin',
+        ]);
+
+        $this->actingAs($admin);
+        SettingsService::set('ai.minimax.api_key', 'saved-key', true);
+        SettingsService::set('ai.minimax.base_url', 'https://api.minimax.io/v1');
+        SettingsService::set('ai.minimax.model', 'MiniMax-M2.7');
+
+        $this->get(route('settings.account.index'))
+            ->assertStatus(200)
+            ->assertInertia(fn ($page) => $page
+                ->component('Settings/Account/Index')
+                ->where('aiSettings.minimax_configured', true)
+                ->where('aiSettings.minimax_base_url', 'https://api.minimax.io/v1')
+                ->where('aiSettings.minimax_model', 'MiniMax-M2.7')
+                ->where('canManageAiSettings', true)
+            );
     }
 
     public function test_guest_cannot_view_account_settings(): void

@@ -38,6 +38,13 @@ final class WeeklySalesController extends Controller
             ),
             'canSave' => $request->user()->hasPermission('create_orders'),
             'canEditCosts' => $request->user()->hasPermission('edit_products'),
+            'canUseAiOperations' => $request->user()->hasAnyPermission([
+                'edit_products',
+                'manage_stock',
+                'manage_purchase_orders',
+                'create_purchase_orders',
+                'edit_purchase_orders',
+            ]),
         ]);
     }
 

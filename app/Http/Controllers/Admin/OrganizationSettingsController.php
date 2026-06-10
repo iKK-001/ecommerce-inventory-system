@@ -7,9 +7,9 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Auth\Organization;
 use App\Models\User;
+use App\Services\SettingsService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -24,8 +24,7 @@ class OrganizationSettingsController extends Controller
     /**
      * Display the organization settings page.
      *
-     * @param Request $request The incoming HTTP request
-     * @return Response
+     * @param  Request  $request  The incoming HTTP request
      */
     public function index(Request $request): Response
     {
@@ -35,21 +34,31 @@ class OrganizationSettingsController extends Controller
         return Inertia::render('Settings/Organization/Index', [
             'organization' => $organization,
             'user' => $user,
+            'aiSettings' => [
+                'minimax_configured' => filled(SettingsService::get('ai.minimax.api_key')),
+                'minimax_base_url' => SettingsService::get(
+                    'ai.minimax.base_url',
+                    config('services.minimax.base_url', 'https://api.minimax.io/v1')
+                ),
+                'minimax_model' => SettingsService::get(
+                    'ai.minimax.model',
+                    config('services.minimax.model', 'MiniMax-M2.7')
+                ),
+            ],
         ]);
     }
 
     /**
      * Update organization general settings.
      *
-     * @param Request $request The incoming HTTP request containing organization data
-     * @return RedirectResponse
+     * @param  Request  $request  The incoming HTTP request containing organization data
      */
     public function updateGeneral(Request $request): RedirectResponse
     {
         $user = $request->user();
 
         // Ensure only admins can update organization settings
-        if (!$user->is_admin) {
+        if (! $user->is_admin) {
             abort(403, 'Only administrators can update organization settings.');
         }
 
@@ -73,15 +82,14 @@ class OrganizationSettingsController extends Controller
     /**
      * Update organization regional settings.
      *
-     * @param Request $request The incoming HTTP request containing regional settings
-     * @return RedirectResponse
+     * @param  Request  $request  The incoming HTTP request containing regional settings
      */
     public function updateRegional(Request $request): RedirectResponse
     {
         $user = $request->user();
 
         // Ensure only admins can update organization settings
-        if (!$user->is_admin) {
+        if (! $user->is_admin) {
             abort(403, 'Only administrators can update organization settings.');
         }
 
@@ -99,10 +107,38 @@ class OrganizationSettingsController extends Controller
     }
 
     /**
+     * Update organization AI provider settings.
+     *
+     * @param  Request  $request  The incoming HTTP request containing AI settings
+     */
+    public function updateAi(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+
+        if (! $user->is_admin) {
+            abort(403, 'Only administrators can update organization settings.');
+        }
+
+        $validated = $request->validate([
+            'minimax_api_key' => ['nullable', 'string', 'max:5000'],
+            'minimax_base_url' => ['required', 'url', 'max:255'],
+            'minimax_model' => ['required', 'string', 'max:100'],
+        ]);
+
+        if (filled($validated['minimax_api_key'] ?? null)) {
+            SettingsService::set('ai.minimax.api_key', $validated['minimax_api_key'], true);
+        }
+
+        SettingsService::set('ai.minimax.base_url', rtrim($validated['minimax_base_url'], '/'));
+        SettingsService::set('ai.minimax.model', $validated['minimax_model']);
+
+        return redirect()->back()->with('success', 'AI settings updated successfully.');
+    }
+
+    /**
      * Display user management for the organization.
      *
-     * @param Request $request The incoming HTTP request
-     * @return Response
+     * @param  Request  $request  The incoming HTTP request
      */
     public function users(Request $request): Response
     {
@@ -118,15 +154,14 @@ class OrganizationSettingsController extends Controller
     /**
      * Store a new user in the organization.
      *
-     * @param Request $request The incoming HTTP request containing user data
-     * @return RedirectResponse
+     * @param  Request  $request  The incoming HTTP request containing user data
      */
     public function storeUser(Request $request): RedirectResponse
     {
         $user = $request->user();
 
         // Ensure only admins can create users
-        if (!$user->is_admin) {
+        if (! $user->is_admin) {
             abort(403, 'Only administrators can create users.');
         }
 
@@ -151,16 +186,15 @@ class OrganizationSettingsController extends Controller
     /**
      * Update an existing user.
      *
-     * @param Request $request The incoming HTTP request containing updated user data
-     * @param User $user The user to update
-     * @return RedirectResponse
+     * @param  Request  $request  The incoming HTTP request containing updated user data
+     * @param  User  $user  The user to update
      */
     public function updateUser(Request $request, User $user): RedirectResponse
     {
         $currentUser = $request->user();
 
         // Ensure only admins can update users
-        if (!$currentUser->is_admin) {
+        if (! $currentUser->is_admin) {
             abort(403, 'Only administrators can update users.');
         }
 
@@ -171,12 +205,12 @@ class OrganizationSettingsController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|email|max:255|unique:users,email,' . $user->id,
+            'email' => 'required|email|max:255|unique:users,email,'.$user->id,
             'is_admin' => 'boolean',
         ]);
 
         // Don't allow removing admin from the last admin
-        if (isset($validated['is_admin']) && !$validated['is_admin']) {
+        if (isset($validated['is_admin']) && ! $validated['is_admin']) {
             $adminCount = User::where('organization_id', $currentUser->organization_id)
                 ->where('role', 'admin')
                 ->count();
@@ -198,16 +232,15 @@ class OrganizationSettingsController extends Controller
     /**
      * Delete a user from the organization.
      *
-     * @param Request $request The incoming HTTP request
-     * @param User $user The user to delete
-     * @return RedirectResponse
+     * @param  Request  $request  The incoming HTTP request
+     * @param  User  $user  The user to delete
      */
     public function destroyUser(Request $request, User $user): RedirectResponse
     {
         $currentUser = $request->user();
 
         // Ensure only admins can delete users
-        if (!$currentUser->is_admin) {
+        if (! $currentUser->is_admin) {
             abort(403, 'Only administrators can delete users.');
         }
 

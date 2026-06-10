@@ -4,6 +4,7 @@ import { Head, router, useForm, usePage } from '@inertiajs/vue3';
 import { useI18n } from 'vue-i18n';
 import {
     AlertTriangle,
+    Bot,
     Boxes,
     CalendarDays,
     CheckCircle2,
@@ -32,6 +33,7 @@ const props = defineProps({
     report: { type: Object, required: true },
     canSave: { type: Boolean, default: false },
     canEditCosts: { type: Boolean, default: false },
+    canUseAiOperations: { type: Boolean, default: false },
 });
 
 const { t, locale } = useI18n();
@@ -55,6 +57,12 @@ const draftQuantities = ref({});
 const costDrafts = ref({});
 const editingCostProductId = ref(null);
 const clientError = ref('');
+const aiInstruction = ref('');
+const aiDraft = ref(null);
+const aiError = ref('');
+const aiMessage = ref('');
+const aiLoading = ref(false);
+const aiExecuting = ref(false);
 const allowNavigation = ref(false);
 const inputRefs = {};
 
@@ -101,6 +109,7 @@ const isDirty = (productId) =>
 
 const dirtyProductIds = computed(() => props.report.rows.filter((row) => isDirty(row.product_id)).map((row) => row.product_id));
 const dirtyCount = computed(() => dirtyProductIds.value.length);
+const hasLocalUnsavedChanges = computed(() => dirtyCount.value > 0 || editingCostProductId.value !== null);
 
 const visibleRows = computed(() => {
     const query = search.value.trim().toLowerCase();
@@ -120,6 +129,27 @@ const visibleRows = computed(() => {
 
 const firstError = computed(() => clientError.value || Object.values(form.errors)[0] || Object.values(costForm.errors)[0] || null);
 const flashSuccess = computed(() => page.props.flash?.success);
+const aiChangeRows = computed(() => {
+    if (!aiDraft.value?.operations) return [];
+
+    return aiDraft.value.operations.flatMap((operation) =>
+        (operation.changes || []).map((change) => ({
+            operation,
+            change,
+        }))
+    );
+});
+const aiDraftWarnings = computed(() => {
+    const operationWarnings = aiDraft.value?.operations?.flatMap((operation) => operation.warnings || []) || [];
+    return [...new Set([...(aiDraft.value?.warnings || []), ...operationWarnings].filter(Boolean))];
+});
+const canConfirmAiDraft = computed(() =>
+    props.canUseAiOperations
+    && aiDraft.value?.status === 'draft'
+    && aiChangeRows.value.length > 0
+    && !aiLoading.value
+    && !aiExecuting.value
+);
 
 const formatUsd = (value) =>
     new Intl.NumberFormat(locale.value, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value ?? 0);
@@ -127,6 +157,18 @@ const formatUsd = (value) =>
 const formatNumber = (value, digits = 2) => {
     if (value === null || value === undefined) return '-';
     return new Intl.NumberFormat(locale.value, { maximumFractionDigits: digits }).format(value);
+};
+const formatAiOldValue = (change) => {
+    if (change.unit === 'USD') return formatUsd(Number(change.old_value ?? 0));
+    if (change.unit === 'units') return formatNumber(Number(change.old_value ?? 0), 0);
+
+    return String(change.old_value ?? '—');
+};
+const formatAiNewValue = (change) => {
+    if (change.unit === 'USD') return formatUsd(Number(change.new_value ?? 0));
+    if (change.unit === 'units') return formatNumber(Number(change.new_value ?? 0), 0);
+
+    return String(change.new_value ?? '—');
 };
 
 const dateObject = (date) => new Date(`${date}T12:00:00`);
@@ -157,6 +199,83 @@ const currentMonday = () => {
 
 const navigateWeek = (weekStart) => {
     router.get(route('weekly-sales.index'), { week_start: weekStart }, { preserveScroll: false });
+};
+
+const axiosErrorMessage = (error) =>
+    error?.response?.data?.errors?.instruction?.[0]
+    || error?.response?.data?.errors?.draft_id?.[0]
+    || error?.response?.data?.message
+    || t('weeklySales.aiErrorFallback');
+
+const resetAiDraft = () => {
+    aiDraft.value = null;
+    aiError.value = '';
+    aiMessage.value = '';
+};
+
+const generateAiDraft = async () => {
+    if (!props.canUseAiOperations || aiLoading.value) return;
+    if (hasLocalUnsavedChanges.value) {
+        aiError.value = t('weeklySales.aiUnsavedGuard');
+        return;
+    }
+    if (!aiInstruction.value.trim()) {
+        aiError.value = t('weeklySales.aiNoInstruction');
+        return;
+    }
+
+    aiLoading.value = true;
+    aiError.value = '';
+    aiMessage.value = '';
+    aiDraft.value = null;
+
+    try {
+        const response = await window.axios.post(route('ai-operations.draft'), {
+            instruction: aiInstruction.value.trim(),
+        });
+        aiDraft.value = response.data.draft;
+        aiMessage.value = t('weeklySales.aiDraftCreated');
+    } catch (error) {
+        aiError.value = axiosErrorMessage(error);
+    } finally {
+        aiLoading.value = false;
+    }
+};
+
+const executeAiDraft = async () => {
+    if (!canConfirmAiDraft.value) return;
+    if (hasLocalUnsavedChanges.value) {
+        aiError.value = t('weeklySales.aiUnsavedGuard');
+        return;
+    }
+
+    aiExecuting.value = true;
+    aiError.value = '';
+    aiMessage.value = '';
+
+    try {
+        const response = await window.axios.post(route('ai-operations.execute'), {
+            draft_id: aiDraft.value.id,
+        });
+        aiDraft.value = response.data.draft;
+        aiMessage.value = t('weeklySales.aiExecuted');
+        allowNavigation.value = true;
+        router.get(
+            route('weekly-sales.index'),
+            { week_start: props.report.week_start },
+            {
+                preserveScroll: true,
+                preserveState: false,
+                onFinish: () => {
+                    allowNavigation.value = false;
+                },
+            }
+        );
+    } catch (error) {
+        aiError.value = axiosErrorMessage(error);
+    } finally {
+        aiExecuting.value = false;
+    }
 };
 
 const setExpanded = (productId, expanded) => {
@@ -474,6 +593,114 @@ const editableCostClass = 'rounded-md px-2 py-1 tabular-nums transition-colors h
                 <template #icon><AlertTriangle :size="17" /></template>
             </StatTile>
         </section>
+
+        <Card v-if="canUseAiOperations" class="mt-4">
+            <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                <div class="flex min-w-0 flex-1 items-start gap-3">
+                    <div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-soft text-brand">
+                        <Bot :size="18" />
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <h2 class="text-sm font-semibold text-text-primary">{{ t('weeklySales.aiTitle') }}</h2>
+                            <Badge v-if="aiDraft?.status" :variant="aiDraft.status === 'executed' ? 'success' : 'info'" size="sm">
+                                {{ aiDraft.status === 'executed' ? t('weeklySales.aiStatusExecuted') : t('weeklySales.aiStatusDraft') }}
+                            </Badge>
+                        </div>
+                        <p class="mt-1 text-xs text-text-tertiary">{{ t('weeklySales.aiDescription') }}</p>
+                        <p class="mt-1 text-xs text-text-tertiary">{{ t('weeklySales.aiManualConfirmNotice') }}</p>
+                    </div>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <Button variant="secondary" size="sm" :disabled="aiLoading || aiExecuting" @click="resetAiDraft">
+                        <RotateCcw :size="14" />
+                        {{ t('weeklySales.aiClear') }}
+                    </Button>
+                    <Button size="sm" :loading="aiLoading" :disabled="!aiInstruction.trim() || aiExecuting" @click="generateAiDraft">
+                        {{ t('weeklySales.aiGenerate') }}
+                    </Button>
+                    <Button size="sm" :loading="aiExecuting" :disabled="!canConfirmAiDraft" @click="executeAiDraft">
+                        <CheckCircle2 :size="14" />
+                        {{ t('weeklySales.aiConfirm') }}
+                    </Button>
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <label for="ai-inventory-instruction" class="mb-1 block text-xs font-medium text-text-secondary">
+                    {{ t('weeklySales.aiInputLabel') }}
+                </label>
+                <textarea
+                    id="ai-inventory-instruction"
+                    v-model="aiInstruction"
+                    rows="3"
+                    :placeholder="t('weeklySales.aiInputPlaceholder')"
+                    class="w-full rounded-lg border border-border-subtle bg-surface-canvas px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary ds-focus-ring"
+                    @input="aiError = ''; aiMessage = ''"
+                />
+            </div>
+
+            <div
+                v-if="aiError"
+                class="mt-3 flex items-start gap-2 rounded-lg border border-status-danger/20 bg-status-danger-soft px-3 py-2 text-xs text-status-danger"
+            >
+                <AlertTriangle :size="14" class="mt-0.5 shrink-0" />
+                <span>{{ aiError }}</span>
+            </div>
+            <div
+                v-else-if="aiMessage"
+                class="mt-3 flex items-start gap-2 rounded-lg border border-status-success/20 bg-status-success-soft px-3 py-2 text-xs text-status-success"
+            >
+                <CheckCircle2 :size="14" class="mt-0.5 shrink-0" />
+                <span>{{ aiMessage }}</span>
+            </div>
+
+            <div
+                v-if="aiDraftWarnings.length > 0"
+                class="mt-3 rounded-lg border border-status-warning/25 bg-status-warning-soft px-3 py-2"
+            >
+                <p class="text-xs font-semibold text-status-warning">{{ t('weeklySales.aiWarnings') }}</p>
+                <ul class="mt-1 space-y-1 text-xs text-text-secondary">
+                    <li v-for="warning in aiDraftWarnings" :key="warning">• {{ warning }}</li>
+                </ul>
+            </div>
+
+            <div v-if="aiChangeRows.length > 0" class="mt-4 overflow-x-auto rounded-lg border border-border-subtle">
+                <table class="min-w-[880px] w-full text-sm">
+                    <thead class="bg-surface-raised">
+                        <tr>
+                            <th :class="thClass">{{ t('weeklySales.aiSku') }}</th>
+                            <th :class="thClass">{{ t('weeklySales.aiProduct') }}</th>
+                            <th :class="thClass">{{ t('weeklySales.aiOperation') }}</th>
+                            <th :class="thClass">{{ t('weeklySales.aiField') }}</th>
+                            <th :class="thRightClass">{{ t('weeklySales.aiOldValue') }}</th>
+                            <th :class="thRightClass">{{ t('weeklySales.aiNewValue') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr
+                            v-for="row in aiChangeRows"
+                            :key="`${row.operation.id}:${row.change.field}`"
+                            class="border-t border-border-subtle bg-surface-canvas"
+                        >
+                            <td class="whitespace-nowrap px-3 py-2 font-mono text-xs text-text-tertiary">{{ row.operation.product_sku || '—' }}</td>
+                            <td class="px-3 py-2 text-xs font-medium text-text-primary">{{ row.operation.product_name }}</td>
+                            <td class="whitespace-nowrap px-3 py-2 text-xs text-text-secondary">{{ row.operation.label }}</td>
+                            <td class="whitespace-nowrap px-3 py-2 text-xs text-text-secondary">{{ row.change.label }}</td>
+                            <td class="whitespace-nowrap px-3 py-2 text-right text-xs tabular-nums text-text-tertiary">
+                                {{ formatAiOldValue(row.change) }}
+                            </td>
+                            <td class="whitespace-nowrap px-3 py-2 text-right text-xs font-semibold tabular-nums text-text-primary">
+                                {{ formatAiNewValue(row.change) }}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div v-else class="mt-4 rounded-lg border border-dashed border-border-subtle bg-surface-canvas px-4 py-5 text-center text-xs text-text-tertiary">
+                {{ t('weeklySales.aiPreviewEmpty') }}
+            </div>
+        </Card>
 
         <Card class="mt-4">
             <div class="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_220px_auto] lg:items-end">
