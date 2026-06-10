@@ -60,6 +60,7 @@ Route::prefix('settings')->name('settings.')->group(function () {
         Route::get('/', [OrganizationSettingsController::class, 'index'])->name('index');
         Route::patch('/general', [OrganizationSettingsController::class, 'updateGeneral'])->middleware('permission:manage_organization')->name('update.general');
         Route::patch('/regional', [OrganizationSettingsController::class, 'updateRegional'])->middleware('permission:manage_organization')->name('update.regional');
+        Route::patch('/ai', [OrganizationSettingsController::class, 'updateAi'])->middleware('permission:manage_organization')->name('update.ai');
 
         // User management within organization settings (admin only)
         Route::middleware('permission:manage_organization')->group(function () {

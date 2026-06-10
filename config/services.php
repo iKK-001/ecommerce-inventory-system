@@ -28,6 +28,12 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'minimax' => [
+        'api_key' => env('MINIMAX_API_KEY'),
+        'base_url' => env('MINIMAX_BASE_URL', 'https://api.minimax.io/v1'),
+        'model' => env('MINIMAX_MODEL', 'MiniMax-M2.7'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

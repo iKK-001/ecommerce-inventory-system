@@ -11,6 +11,14 @@ import { useI18n } from 'vue-i18n';
 const props = defineProps({
     organization: Object,
     user: Object,
+    aiSettings: {
+        type: Object,
+        default: () => ({
+            minimax_configured: false,
+            minimax_base_url: 'https://api.minimax.io/v1',
+            minimax_model: 'MiniMax-M2.7',
+        }),
+    },
 });
 
 
@@ -49,6 +57,22 @@ const submitRegional = () => {
     });
 };
 
+// AI settings form
+const aiForm = useForm({
+    minimax_api_key: '',
+    minimax_base_url: props.aiSettings.minimax_base_url || 'https://api.minimax.io/v1',
+    minimax_model: props.aiSettings.minimax_model || 'MiniMax-M2.7',
+});
+
+const submitAi = () => {
+    aiForm.patch(route('settings.organization.update.ai'), {
+        preserveScroll: true,
+        onSuccess: () => {
+            aiForm.minimax_api_key = '';
+        },
+    });
+};
+
 const isAdmin = props.user.is_admin;
 
 const fieldLabel = 'mb-1 block text-sm font-medium text-text-secondary';
@@ -59,6 +83,7 @@ const fieldError = 'mt-1 text-xs text-status-danger';
 const tabs = [
     { key: 'general', label: 'General Information' },
     { key: 'regional', label: 'Regional Settings' },
+    { key: 'ai', label: 'AI 设置' },
 ];
 </script>
 
@@ -102,6 +127,17 @@ const tabs = [
                     ]"
                 >
                     Regional Settings
+                </button>
+                <button
+                    @click="activeTab = 'ai'"
+                    :class="[
+                        'border-b-2 px-1 py-3 text-sm font-medium transition-colors',
+                        activeTab === 'ai'
+                            ? 'border-brand text-brand'
+                            : 'border-transparent text-text-tertiary hover:border-border-strong hover:text-text-secondary'
+                    ]"
+                >
+                    AI 设置
                 </button>
                 <button
                     v-if="isAdmin"
@@ -289,6 +325,84 @@ const tabs = [
                         <div v-if="isAdmin" class="mt-6 flex justify-end">
                             <Button type="submit" variant="default" :loading="regionalForm.processing" :disabled="regionalForm.processing">
                                 Save Changes
+                            </Button>
+                        </div>
+                    </div>
+                </form>
+            </Card>
+        </div>
+
+        <!-- AI Settings Tab -->
+        <div v-show="activeTab === 'ai'" class="mt-6">
+            <Card :padded="false">
+                <form @submit.prevent="submitAi">
+                    <div class="px-5 pt-5">
+                        <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <h3 class="text-sm font-semibold text-text-primary">AI 设置</h3>
+                                <p class="mt-1 text-sm text-text-secondary">
+                                    配置 MiniMax，用于每周销量页面的 AI 批量修改库存和成本。
+                                </p>
+                            </div>
+                            <span
+                                :class="[
+                                    'inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-medium',
+                                    aiSettings.minimax_configured
+                                        ? 'bg-status-success-soft text-status-success'
+                                        : 'bg-status-warning-soft text-status-warning'
+                                ]"
+                            >
+                                {{ aiSettings.minimax_configured ? 'API Key 已配置' : 'API Key 未配置' }}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="p-5">
+                        <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+                            <div class="md:col-span-2">
+                                <label for="minimax_api_key" :class="fieldLabel">MiniMax API Key</label>
+                                <input
+                                    id="minimax_api_key"
+                                    v-model="aiForm.minimax_api_key"
+                                    type="password"
+                                    autocomplete="new-password"
+                                    :class="fieldInput"
+                                    :disabled="!isAdmin"
+                                    :placeholder="aiSettings.minimax_configured ? '留空则继续使用现有 Key' : '请输入 MiniMax API Key'"
+                                />
+                                <p class="mt-1 text-xs text-text-tertiary">
+                                    API Key 会在服务器加密保存；保存后不会再次完整显示。
+                                </p>
+                                <p v-if="aiForm.errors.minimax_api_key" :class="fieldError">{{ aiForm.errors.minimax_api_key }}</p>
+                            </div>
+                            <div>
+                                <label for="minimax_base_url" :class="fieldLabel">MiniMax Base URL</label>
+                                <input
+                                    id="minimax_base_url"
+                                    v-model="aiForm.minimax_base_url"
+                                    type="url"
+                                    :class="fieldInput"
+                                    :disabled="!isAdmin"
+                                    placeholder="https://api.minimax.io/v1"
+                                />
+                                <p v-if="aiForm.errors.minimax_base_url" :class="fieldError">{{ aiForm.errors.minimax_base_url }}</p>
+                            </div>
+                            <div>
+                                <label for="minimax_model" :class="fieldLabel">MiniMax 模型</label>
+                                <input
+                                    id="minimax_model"
+                                    v-model="aiForm.minimax_model"
+                                    type="text"
+                                    :class="fieldInput"
+                                    :disabled="!isAdmin"
+                                    placeholder="MiniMax-M2.7"
+                                />
+                                <p v-if="aiForm.errors.minimax_model" :class="fieldError">{{ aiForm.errors.minimax_model }}</p>
+                            </div>
+                        </div>
+
+                        <div v-if="isAdmin" class="mt-6 flex justify-end">
+                            <Button type="submit" variant="default" :loading="aiForm.processing" :disabled="aiForm.processing">
+                                保存 AI 设置
                             </Button>
                         </div>
                     </div>
