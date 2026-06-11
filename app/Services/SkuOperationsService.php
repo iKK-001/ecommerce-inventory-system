@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Models\Inventory\Product;
 use App\Models\Inventory\ProductComponent;
+use App\Models\Inventory\ProductVariant;
 use App\Models\Order\Order;
 use App\Models\Order\OrderItem;
 use App\Models\Purchasing\PurchaseOrder;
@@ -45,6 +46,11 @@ final class SkuOperationsService
             ->where('is_sellable', true)
             ->get()
             ->keyBy('id');
+        $variantsByProduct = ProductVariant::forOrganization($organizationId)
+            ->active()
+            ->whereIn('product_id', $sellableProducts->keys()->all())
+            ->get()
+            ->groupBy('product_id');
         $kitIds = $sellableProducts->where('type', 'kit')->keys()->all();
         $componentsByKit = ProductComponent::whereIn('parent_product_id', $kitIds)
             ->get()
@@ -59,28 +65,29 @@ final class SkuOperationsService
             ->keyBy('id');
 
         $inTransitByProduct = $this->inTransitByProduct($organizationId, $inventoryProductIds);
-        $dailySalesByProduct = $this->selectedWeekSales(
+        $dailySalesByEntry = $this->selectedWeekSales(
             $organizationId,
             $weekStart,
             $weekEnd,
             $sellableProducts->keys()->all()
         );
-        $recentSalesByProduct = $this->recentSales(
+        $recentSalesByEntry = $this->recentSales(
             $organizationId,
             $sellableProducts->keys()->all()
         );
 
         $rows = $sellableProducts
-            ->map(function (Product $product) use (
+            ->flatMap(function (Product $product) use (
                 $componentsByKit,
                 $inventoryProducts,
                 $inTransitByProduct,
-                $dailySalesByProduct,
-                $recentSalesByProduct,
+                $dailySalesByEntry,
+                $recentSalesByEntry,
+                $variantsByProduct,
                 $days,
                 $exchangeRate,
                 $lowStockDays
-            ): array {
+            ) {
                 $components = $componentsByKit->get($product->id, collect());
                 $productCostCny = $this->productCostCny($product, $components, $inventoryProducts);
                 $productCostUsd = round($productCostCny / $exchangeRate, 4);
@@ -98,7 +105,6 @@ final class SkuOperationsService
                     4
                 );
                 $usLastMileCostUsd = round((float) $product->last_mile_cost_usd, 4);
-                $sellingPriceUsd = round((float) ($product->selling_price ?? $product->price ?? 0), 4);
                 $unitTotalCostUsd = round(
                     $productCostUsd
                     + $domesticLogisticsCostUsd
@@ -107,10 +113,6 @@ final class SkuOperationsService
                     + $packingCostUsd,
                     4
                 );
-                $grossProfitUsd = round($sellingPriceUsd - $unitTotalCostUsd, 4);
-                $grossMarginPercent = $sellingPriceUsd > 0
-                    ? round(($grossProfitUsd / $sellingPriceUsd) * 100, 2)
-                    : null;
 
                 $warehouseStock = $product->isKit()
                     ? $this->completeKitQuantity(
@@ -127,47 +129,83 @@ final class SkuOperationsService
                     )
                     : (int) ($inTransitByProduct[$product->id] ?? 0);
 
-                $dailyQuantities = [];
-                foreach ($days as $day) {
-                    $dailyQuantities[$day['date']] = (int) ($dailySalesByProduct[$product->id][$day['date']] ?? 0);
-                }
-                $weeklySalesTotal = array_sum($dailyQuantities);
-                $recentUnits = (int) ($recentSalesByProduct[$product->id] ?? 0);
-                $averageDailyUnits = $recentUnits > 0 ? $recentUnits / self::COVERAGE_WINDOW_DAYS : null;
-                $sellableDays = $averageDailyUnits !== null
-                    ? round($warehouseStock / $averageDailyUnits, 2)
-                    : null;
-                $isLowStock = $sellableDays !== null && $sellableDays <= $lowStockDays;
+                $variants = $product->has_variants
+                    ? $variantsByProduct->get($product->id, collect())
+                    : collect();
+                $entries = $variants->isNotEmpty() ? $variants : collect([null]);
 
-                return [
-                    'product_id' => $product->id,
-                    'sku' => $product->sku,
-                    'name' => $product->name,
-                    'type' => $product->type,
-                    'is_entry_supported' => ! $product->has_variants,
-                    'selling_price_usd' => $sellingPriceUsd,
-                    'product_cost_usd' => $productCostUsd,
-                    'domestic_logistics_cost_usd' => $domesticLogisticsCostUsd,
-                    'us_first_leg_cost_usd' => $usFirstLegCostUsd,
-                    'us_last_mile_cost_usd' => $usLastMileCostUsd,
-                    'last_mile_cost_usd' => $usLastMileCostUsd,
-                    'packing_cost_usd' => $packingCostUsd,
-                    'unit_total_cost_usd' => $unitTotalCostUsd,
-                    'gross_profit_usd' => $grossProfitUsd,
-                    'gross_margin_percent' => $grossMarginPercent,
-                    'warehouse_stock' => $warehouseStock,
-                    'in_transit_quantity' => $inTransitQuantity,
-                    'recent_sales_units' => $recentUnits,
-                    'sellable_days' => $sellableDays,
-                    'is_low_stock' => $isLowStock,
-                    'daily_quantities' => $dailyQuantities,
-                    'weekly_sales_total' => $weeklySalesTotal,
-                    'component_impact' => $this->componentImpact(
-                        $components,
-                        $inventoryProducts,
-                        $inTransitByProduct
-                    ),
-                ];
+                return $entries->map(function (?ProductVariant $variant) use (
+                    $product,
+                    $days,
+                    $dailySalesByEntry,
+                    $recentSalesByEntry,
+                    $lowStockDays,
+                    $warehouseStock,
+                    $inTransitQuantity,
+                    $productCostUsd,
+                    $domesticLogisticsCostUsd,
+                    $usFirstLegCostUsd,
+                    $usLastMileCostUsd,
+                    $packingCostUsd,
+                    $unitTotalCostUsd,
+                    $components,
+                    $inventoryProducts,
+                    $inTransitByProduct
+                ): array {
+                    $entryKey = $this->entryKey($product, $variant);
+                    $sellingPriceUsd = round((float) ($variant?->price ?? $product->selling_price ?? $product->price ?? 0), 4);
+                    $grossProfitUsd = round($sellingPriceUsd - $unitTotalCostUsd, 4);
+                    $grossMarginPercent = $sellingPriceUsd > 0
+                        ? round(($grossProfitUsd / $sellingPriceUsd) * 100, 2)
+                        : null;
+
+                    $dailyQuantities = [];
+                    foreach ($days as $day) {
+                        $dailyQuantities[$day['date']] = (int) ($dailySalesByEntry[$entryKey][$day['date']] ?? 0);
+                    }
+                    $weeklySalesTotal = array_sum($dailyQuantities);
+                    $recentUnits = (int) ($recentSalesByEntry[$entryKey] ?? 0);
+                    $averageDailyUnits = $recentUnits > 0 ? $recentUnits / self::COVERAGE_WINDOW_DAYS : null;
+                    $sellableDays = $averageDailyUnits !== null
+                        ? round($warehouseStock / $averageDailyUnits, 2)
+                        : null;
+                    $isLowStock = $sellableDays !== null && $sellableDays <= $lowStockDays;
+
+                    return [
+                        'entry_key' => $entryKey,
+                        'product_id' => $product->id,
+                        'variant_id' => $variant?->id,
+                        'sku' => $variant?->sku ?? $product->sku,
+                        'parent_sku' => $product->sku,
+                        'name' => $variant === null ? $product->name : $this->variantDisplayName($product, $variant),
+                        'parent_name' => $product->name,
+                        'variant_title' => $variant?->title,
+                        'type' => $product->type,
+                        'is_entry_supported' => ! $product->has_variants || $variant !== null,
+                        'selling_price_usd' => $sellingPriceUsd,
+                        'product_cost_usd' => $productCostUsd,
+                        'domestic_logistics_cost_usd' => $domesticLogisticsCostUsd,
+                        'us_first_leg_cost_usd' => $usFirstLegCostUsd,
+                        'us_last_mile_cost_usd' => $usLastMileCostUsd,
+                        'last_mile_cost_usd' => $usLastMileCostUsd,
+                        'packing_cost_usd' => $packingCostUsd,
+                        'unit_total_cost_usd' => $unitTotalCostUsd,
+                        'gross_profit_usd' => $grossProfitUsd,
+                        'gross_margin_percent' => $grossMarginPercent,
+                        'warehouse_stock' => $warehouseStock,
+                        'in_transit_quantity' => $inTransitQuantity,
+                        'recent_sales_units' => $recentUnits,
+                        'sellable_days' => $sellableDays,
+                        'is_low_stock' => $isLowStock,
+                        'daily_quantities' => $dailyQuantities,
+                        'weekly_sales_total' => $weeklySalesTotal,
+                        'component_impact' => $this->componentImpact(
+                            $components,
+                            $inventoryProducts,
+                            $inTransitByProduct
+                        ),
+                    ];
+                });
             })
             ->sort(function (array $left, array $right): int {
                 if ($left['is_low_stock'] !== $right['is_low_stock']) {
@@ -284,7 +322,7 @@ final class SkuOperationsService
 
     /**
      * @param  array<int, int>  $productIds
-     * @return array<int, array<string, int>>
+     * @return array<string, array<string, int>>
      */
     private function selectedWeekSales(
         int $organizationId,
@@ -304,7 +342,8 @@ final class SkuOperationsService
             $date = $order->order_date->toDateString();
             foreach ($order->items as $item) {
                 if ($item->product_id !== null && in_array($item->product_id, $productIds, true)) {
-                    $sales[$item->product_id][$date] = ($sales[$item->product_id][$date] ?? 0)
+                    $entryKey = $this->orderItemEntryKey($item);
+                    $sales[$entryKey][$date] = ($sales[$entryKey][$date] ?? 0)
                         + (int) $item->quantity;
                 }
             }
@@ -315,7 +354,7 @@ final class SkuOperationsService
 
     /**
      * @param  array<int, int>  $productIds
-     * @return array<int, int>
+     * @return array<string, int>
      */
     private function recentSales(int $organizationId, array $productIds): array
     {
@@ -329,11 +368,30 @@ final class SkuOperationsService
                 now()->subDays(self::COVERAGE_WINDOW_DAYS - 1)->startOfDay(),
                 now()->endOfDay(),
             ])
-            ->selectRaw('order_items.product_id, SUM(order_items.quantity) as quantity_sold')
-            ->groupBy('order_items.product_id')
+            ->selectRaw('order_items.product_id, order_items.product_variant_id, SUM(order_items.quantity) as quantity_sold')
+            ->groupBy('order_items.product_id', 'order_items.product_variant_id')
             ->get()
-            ->mapWithKeys(fn ($row): array => [(int) $row->product_id => (int) $row->quantity_sold])
+            ->mapWithKeys(fn ($row): array => [$this->orderItemEntryKey($row) => (int) $row->quantity_sold])
             ->all();
+    }
+
+    private function entryKey(Product $product, ?ProductVariant $variant = null): string
+    {
+        return $variant !== null ? "v:{$variant->id}" : "p:{$product->id}";
+    }
+
+    private function orderItemEntryKey($item): string
+    {
+        return $item->product_variant_id !== null
+            ? "v:{$item->product_variant_id}"
+            : "p:{$item->product_id}";
+    }
+
+    private function variantDisplayName(Product $product, ProductVariant $variant): string
+    {
+        $descriptor = $variant->title ?? $variant->sku ?? "Variant {$variant->id}";
+
+        return "{$product->name} - {$descriptor}";
     }
 
     /**

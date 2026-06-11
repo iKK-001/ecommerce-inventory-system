@@ -41,8 +41,12 @@ final class SalesStockResolver
      *     }>
      * }
      */
-    public function resolve(int $organizationId, array $items, bool $lockForUpdate = true): array
-    {
+    public function resolve(
+        int $organizationId,
+        array $items,
+        bool $lockForUpdate = true,
+        bool $variantsConsumeParentStock = false
+    ): array {
         $soldProductIds = array_values(array_unique(array_map(
             fn (array $item): int => (int) $item['product_id'],
             $items
@@ -100,12 +104,19 @@ final class SalesStockResolver
                     );
                 }
 
-                $stockTargets = [[
-                    'target' => $variant,
-                    'key' => "v{$variantId}",
-                    'qty' => $quantity,
-                    'label' => $this->lineLabel($product, $variant),
-                ]];
+                $stockTargets = $variantsConsumeParentStock
+                    ? [[
+                        'target' => $product,
+                        'key' => "p{$productId}",
+                        'qty' => $quantity,
+                        'label' => $this->lineLabel($product, $variant),
+                    ]]
+                    : [[
+                        'target' => $variant,
+                        'key' => "v{$variantId}",
+                        'qty' => $quantity,
+                        'label' => $this->lineLabel($product, $variant),
+                    ]];
             } else {
                 if ($product->has_variants) {
                     throw new InvalidOrderItemException(

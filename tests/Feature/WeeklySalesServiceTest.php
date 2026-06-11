@@ -9,6 +9,7 @@ use App\Exceptions\InvalidOrderItemException;
 use App\Models\Auth\Organization;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\ProductComponent;
+use App\Models\Inventory\ProductVariant;
 use App\Models\Inventory\StockAdjustment;
 use App\Models\Order\Order;
 use App\Models\User;
@@ -238,7 +239,57 @@ class WeeklySalesServiceTest extends TestCase
         );
     }
 
-    public function test_reconciliation_rejects_variant_tracked_sellable_skus_even_without_sales(): void
+    public function test_variant_sales_are_entered_separately_but_decrement_shared_parent_stock(): void
+    {
+        $product = $this->product('SHARED-VARIANTS', 20);
+        $product->updateQuietly(['has_variants' => true]);
+        $red = $this->variant($product, 'SHARED-RED', 'Red');
+        $blue = $this->variant($product, 'SHARED-BLUE', 'Blue');
+
+        $this->save([
+            $this->variantRow($red, ['2026-06-01' => 2]),
+            $this->variantRow($blue, ['2026-06-01' => 3]),
+        ]);
+
+        $this->assertSame(15, (int) $product->fresh()->stock);
+        $this->assertSame(0, (int) $red->fresh()->stock);
+        $this->assertSame(0, (int) $blue->fresh()->stock);
+
+        $order = Order::where('external_id', 'tiktok-us-sales:2026-06-01')->firstOrFail();
+        $this->assertSame(
+            ['SHARED-BLUE' => 3, 'SHARED-RED' => 2],
+            $order->items()
+                ->orderBy('sku')
+                ->pluck('quantity', 'sku')
+                ->map(fn ($quantity): int => (int) $quantity)
+                ->all()
+        );
+        $this->assertSame(
+            [$blue->id, $red->id],
+            $order->items()
+                ->orderBy('sku')
+                ->pluck('product_variant_id')
+                ->map(fn ($variantId): int => (int) $variantId)
+                ->all()
+        );
+
+        $this->save([
+            $this->variantRow($red, ['2026-06-01' => 1]),
+            $this->variantRow($blue, ['2026-06-01' => 3]),
+        ]);
+
+        $this->assertSame(16, (int) $product->fresh()->stock);
+        $this->assertSame(
+            [-2, -3, 1],
+            StockAdjustment::query()
+                ->orderBy('id')
+                ->pluck('adjustment_quantity')
+                ->map(fn ($quantity): int => (int) $quantity)
+                ->all()
+        );
+    }
+
+    public function test_variant_tracked_product_rows_still_require_a_variant_id(): void
     {
         $variantTracked = $this->product('VARIANT-TRACKED', 10);
         $variantTracked->updateQuietly(['has_variants' => true]);
@@ -274,6 +325,18 @@ class WeeklySalesServiceTest extends TestCase
         ];
     }
 
+    /**
+     * @param  array<string, int>  $quantities
+     * @return array{product_id: int, product_variant_id: int, daily_quantities: array<string, int>}
+     */
+    private function variantRow(ProductVariant $variant, array $quantities = []): array
+    {
+        $row = $this->row($variant->product, $quantities);
+        $row['product_variant_id'] = $variant->id;
+
+        return $row;
+    }
+
     private function product(string $sku, int $stock, string $type = 'standard'): Product
     {
         return Product::create([
@@ -288,6 +351,20 @@ class WeeklySalesServiceTest extends TestCase
             'min_stock' => 0,
             'is_active' => true,
             'is_sellable' => true,
+        ]);
+    }
+
+    private function variant(Product $product, string $sku, string $title): ProductVariant
+    {
+        return ProductVariant::create([
+            'organization_id' => $this->organization->id,
+            'product_id' => $product->id,
+            'sku' => $sku,
+            'title' => $title,
+            'option_values' => ['Color' => $title],
+            'stock' => 0,
+            'min_stock' => 0,
+            'is_active' => true,
         ]);
     }
 }

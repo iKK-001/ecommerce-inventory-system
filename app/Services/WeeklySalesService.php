@@ -37,7 +37,7 @@ final class WeeklySalesService
     public function __construct(private readonly SalesStockResolver $salesStockResolver) {}
 
     /**
-     * @param  array<int, array{product_id: int, daily_quantities: array<string, int>}>  $sales
+     * @param  array<int, array{product_id: int, product_variant_id?: int|null, daily_quantities: array<string, int>}>  $sales
      */
     public function save(User $user, CarbonImmutable $weekStart, array $sales): void
     {
@@ -53,25 +53,23 @@ final class WeeklySalesService
             $organizationId = (int) $user->organization_id;
             Organization::whereKey($organizationId)->lockForUpdate()->firstOrFail();
 
-            [$dates, $newByDate, $submittedProducts] = $this->normalizeSales(
+            [$dates, $newByDate, $submittedEntries] = $this->normalizeSales(
                 $organizationId,
                 $weekStart,
                 $sales
             );
             $existingOrders = $this->loadExistingOrders($organizationId, $dates);
-            $submittedProductIds = $submittedProducts->keys()
-                ->map(fn ($productId): int => (int) $productId)
-                ->all();
+            $submittedEntryKeys = $submittedEntries->keys()->all();
             $changes = $this->calculateChanges(
                 $dates,
                 $newByDate,
                 $existingOrders,
-                $submittedProductIds
+                $submittedEntries
             );
             $preservedByDate = $this->preservedOrderItemRows(
                 $dates,
                 $existingOrders,
-                $submittedProductIds
+                $submittedEntryKeys
             );
 
             if ($changes !== []) {
@@ -80,10 +78,13 @@ final class WeeklySalesService
                     array_map(
                         fn (array $change): array => [
                             'product_id' => $change['product_id'],
+                            'product_variant_id' => $change['product_variant_id'],
                             'quantity' => abs($change['difference']),
                         ],
                         $changes
-                    )
+                    ),
+                    true,
+                    true
                 );
 
                 foreach ($changes as $index => &$change) {
@@ -103,7 +104,7 @@ final class WeeklySalesService
             $this->replaceDailyOrderItems(
                 $dates,
                 $newByDate,
-                $submittedProducts,
+                $submittedEntries,
                 $ordersByDate,
                 $preservedByDate
             );
@@ -111,11 +112,11 @@ final class WeeklySalesService
     }
 
     /**
-     * @param  array<int, array{product_id: int, daily_quantities: array<string, int>}>  $sales
+     * @param  array<int, array{product_id: int, product_variant_id?: int|null, daily_quantities: array<string, int>}>  $sales
      * @return array{
      *     0: array<int, string>,
-     *     1: array<string, array<int, int>>,
-     *     2: Collection<int, Product>
+     *     1: array<string, array<string, int>>,
+     *     2: Collection<string, array{product: Product, variant: ?ProductVariant}>
      * }
      */
     private function normalizeSales(int $organizationId, CarbonImmutable $weekStart, array $sales): array
@@ -129,13 +130,24 @@ final class WeeklySalesService
         }
         $allowedDates = array_fill_keys($dates, true);
 
+        $entryKeys = [];
         $productIds = [];
+        $variantIds = [];
         foreach ($sales as $row) {
             $productId = (int) ($row['product_id'] ?? 0);
-            if ($productId <= 0 || isset($productIds[$productId])) {
-                throw new InvalidArgumentException('Weekly sales rows require unique product IDs.');
+            $variantId = array_key_exists('product_variant_id', $row) && $row['product_variant_id'] !== null
+                ? (int) $row['product_variant_id']
+                : null;
+            $entryKey = $this->entryKey($productId, $variantId);
+
+            if ($productId <= 0 || isset($entryKeys[$entryKey])) {
+                throw new InvalidArgumentException('Weekly sales rows require unique product or variant IDs.');
             }
+            $entryKeys[$entryKey] = true;
             $productIds[$productId] = true;
+            if ($variantId !== null) {
+                $variantIds[$variantId] = true;
+            }
 
             foreach (($row['daily_quantities'] ?? []) as $date => $quantity) {
                 if (! isset($allowedDates[$date])) {
@@ -143,34 +155,67 @@ final class WeeklySalesService
                 }
                 if (filter_var($quantity, FILTER_VALIDATE_INT) === false || (int) $quantity < 0) {
                     throw new InvalidArgumentException(
-                        "Weekly sales quantity for product {$productId} on {$date} must be a non-negative integer."
+                        "Weekly sales quantity for {$entryKey} on {$date} must be a non-negative integer."
                     );
                 }
 
                 if ((int) $quantity > 0) {
-                    $newByDate[$date][$productId] = (int) $quantity;
+                    $newByDate[$date][$entryKey] = (int) $quantity;
                 }
             }
         }
 
-        $submittedProducts = Product::query()
+        $products = Product::query()
             ->where('organization_id', $organizationId)
             ->where('is_active', true)
             ->where('is_sellable', true)
-            ->where('has_variants', false)
             ->whereIn('id', array_keys($productIds))
             ->get()
             ->keyBy('id');
+        $variants = ProductVariant::query()
+            ->where('organization_id', $organizationId)
+            ->where('is_active', true)
+            ->whereIn('id', array_keys($variantIds))
+            ->get()
+            ->keyBy('id');
 
-        foreach (array_keys($productIds) as $productId) {
-            if (! $submittedProducts->has($productId)) {
+        $submittedEntries = collect();
+        foreach ($sales as $row) {
+            $productId = (int) ($row['product_id'] ?? 0);
+            $variantId = array_key_exists('product_variant_id', $row) && $row['product_variant_id'] !== null
+                ? (int) $row['product_variant_id']
+                : null;
+            $product = $products->get($productId);
+
+            if (! $product) {
                 throw new InvalidOrderItemException(
                     "Product {$productId} is not an active supported sellable SKU in this organization."
                 );
             }
+
+            if ($product->has_variants) {
+                $variant = $variantId !== null ? $variants->get($variantId) : null;
+                if (! $variant || $variant->product_id !== $product->id) {
+                    throw new InvalidOrderItemException(
+                        "Product {$product->name} requires an active variant for weekly sales."
+                    );
+                }
+            } else {
+                if ($variantId !== null) {
+                    throw new InvalidOrderItemException(
+                        "Product {$product->name} does not support variant weekly sales."
+                    );
+                }
+                $variant = null;
+            }
+
+            $submittedEntries->put($this->entryKey($product->id, $variant?->id), [
+                'product' => $product,
+                'variant' => $variant,
+            ]);
         }
 
-        return [$dates, $newByDate, $submittedProducts];
+        return [$dates, $newByDate, $submittedEntries];
     }
 
     /**
@@ -196,37 +241,42 @@ final class WeeklySalesService
 
     /**
      * @param  array<int, string>  $dates
-     * @param  array<string, array<int, int>>  $newByDate
+     * @param  array<string, array<string, int>>  $newByDate
      * @param  Collection<string, Order>  $existingOrders
-     * @param  array<int, int>  $submittedProductIds
-     * @return array<int, array{date: string, product_id: int, difference: int}>
+     * @param  Collection<string, array{product: Product, variant: ?ProductVariant}>  $submittedEntries
+     * @return array<int, array{date: string, entry_key: string, product_id: int, product_variant_id: ?int, difference: int}>
      */
     private function calculateChanges(
         array $dates,
         array $newByDate,
         Collection $existingOrders,
-        array $submittedProductIds
+        Collection $submittedEntries
     ): array {
         $changes = [];
-        sort($submittedProductIds);
+        $submittedEntryKeys = $submittedEntries->keys()->all();
+        sort($submittedEntryKeys);
 
         foreach ($dates as $date) {
             $order = $existingOrders->get(self::EXTERNAL_ID_PREFIX.$date);
             $old = [];
             if ($order !== null && ! $order->trashed()) {
                 foreach ($order->items as $item) {
-                    if ($item->product_id !== null) {
-                        $old[$item->product_id] = ($old[$item->product_id] ?? 0) + (int) $item->quantity;
+                    $entryKey = $this->orderItemEntryKey($item);
+                    if ($entryKey !== null) {
+                        $old[$entryKey] = ($old[$entryKey] ?? 0) + (int) $item->quantity;
                     }
                 }
             }
 
-            foreach ($submittedProductIds as $productId) {
-                $difference = ($newByDate[$date][$productId] ?? 0) - ($old[$productId] ?? 0);
+            foreach ($submittedEntryKeys as $entryKey) {
+                $difference = ($newByDate[$date][$entryKey] ?? 0) - ($old[$entryKey] ?? 0);
                 if ($difference !== 0) {
+                    $entry = $submittedEntries->get($entryKey);
                     $changes[] = [
                         'date' => $date,
-                        'product_id' => $productId,
+                        'entry_key' => $entryKey,
+                        'product_id' => $entry['product']->id,
+                        'product_variant_id' => $entry['variant']?->id,
                         'difference' => $difference,
                     ];
                 }
@@ -242,15 +292,15 @@ final class WeeklySalesService
      *
      * @param  array<int, string>  $dates
      * @param  Collection<string, Order>  $existingOrders
-     * @param  array<int, int>  $submittedProductIds
+     * @param  array<int, string>  $submittedEntryKeys
      * @return array<string, array<int, array<string, mixed>>>
      */
     private function preservedOrderItemRows(
         array $dates,
         Collection $existingOrders,
-        array $submittedProductIds
+        array $submittedEntryKeys
     ): array {
-        $submitted = array_fill_keys($submittedProductIds, true);
+        $submitted = array_fill_keys($submittedEntryKeys, true);
         $preservedByDate = [];
 
         foreach ($dates as $date) {
@@ -261,7 +311,8 @@ final class WeeklySalesService
             }
 
             foreach ($order->items as $item) {
-                if ($item->product_id !== null && isset($submitted[(int) $item->product_id])) {
+                $entryKey = $this->orderItemEntryKey($item);
+                if ($entryKey !== null && isset($submitted[$entryKey])) {
                     continue;
                 }
 
@@ -285,7 +336,7 @@ final class WeeklySalesService
 
     /**
      * @param  array<int, string>  $dates
-     * @param  array<string, array<int, int>>  $newByDate
+     * @param  array<string, array<string, int>>  $newByDate
      * @param  Collection<string, Order>  $existingOrders
      * @return array<string, Order>
      */
@@ -350,7 +401,9 @@ final class WeeklySalesService
     /**
      * @param  array<int, array{
      *     date: string,
+     *     entry_key: string,
      *     product_id: int,
+     *     product_variant_id: ?int,
      *     difference: int,
      *     line: array<string, mixed>
      * }>  $changes
@@ -409,15 +462,15 @@ final class WeeklySalesService
 
     /**
      * @param  array<int, string>  $dates
-     * @param  array<string, array<int, int>>  $newByDate
-     * @param  Collection<int, Product>  $products
+     * @param  array<string, array<string, int>>  $newByDate
+     * @param  Collection<string, array{product: Product, variant: ?ProductVariant}>  $entries
      * @param  array<string, Order>  $ordersByDate
      * @param  array<string, array<int, array<string, mixed>>>  $preservedByDate
      */
     private function replaceDailyOrderItems(
         array $dates,
         array $newByDate,
-        Collection $products,
+        Collection $entries,
         array $ordersByDate,
         array $preservedByDate
     ): void {
@@ -433,21 +486,31 @@ final class WeeklySalesService
                 $subtotal = Money::add($subtotal, $row['subtotal']);
             }
 
-            foreach ($newByDate[$date] as $productId => $quantity) {
-                $product = $products->get($productId);
-                $unitPrice = $product->selling_price ?? $product->price ?? 0;
+            foreach ($newByDate[$date] as $entryKey => $quantity) {
+                $entry = $entries->get($entryKey);
+                if ($entry === null) {
+                    continue;
+                }
+                $product = $entry['product'];
+                $variant = $entry['variant'];
+                $unitPrice = $variant?->price ?? $product->selling_price ?? $product->price ?? 0;
                 $lineSubtotal = Money::multiply($unitPrice, $quantity);
                 $subtotal = Money::add($subtotal, $lineSubtotal);
                 $rows[] = [
                     'product_id' => $product->id,
-                    'product_name' => $product->name,
-                    'sku' => $product->sku,
+                    'product_variant_id' => $variant?->id,
+                    'product_name' => $variant === null ? $product->name : $this->variantDisplayName($product, $variant),
+                    'sku' => $variant?->sku ?? $product->sku,
                     'quantity' => $quantity,
                     'unit_price' => $unitPrice,
                     'subtotal' => $lineSubtotal,
                     'tax' => 0,
                     'total' => $lineSubtotal,
-                    'metadata' => ['entry_method' => 'weekly_manual'],
+                    'metadata' => [
+                        'entry_method' => 'weekly_manual',
+                        'entry_key' => $entryKey,
+                        'variant_title' => $variant?->title,
+                    ],
                 ];
             }
 
@@ -466,5 +529,29 @@ final class WeeklySalesService
                 'total' => $subtotal,
             ]);
         }
+    }
+
+    private function entryKey(int $productId, ?int $variantId = null): string
+    {
+        return $variantId !== null ? "v:{$variantId}" : "p:{$productId}";
+    }
+
+    private function orderItemEntryKey($item): ?string
+    {
+        if ($item->product_variant_id !== null) {
+            return "v:{$item->product_variant_id}";
+        }
+        if ($item->product_id !== null) {
+            return "p:{$item->product_id}";
+        }
+
+        return null;
+    }
+
+    private function variantDisplayName(Product $product, ProductVariant $variant): string
+    {
+        $descriptor = $variant->title ?? $variant->sku ?? "Variant {$variant->id}";
+
+        return "{$product->name} - {$descriptor}";
     }
 }

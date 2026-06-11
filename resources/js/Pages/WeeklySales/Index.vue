@@ -78,9 +78,11 @@ const costFields = [
 const copyDailyQuantities = (row) =>
     Object.fromEntries(props.report.days.map((day) => [day.date, Number(row.daily_quantities?.[day.date] ?? 0)]));
 
+const rowKey = (row) => row.entry_key || `p:${row.product_id}`;
+
 const initializeDrafts = () => {
-    originalQuantities.value = Object.fromEntries(props.report.rows.map((row) => [row.product_id, copyDailyQuantities(row)]));
-    draftQuantities.value = Object.fromEntries(props.report.rows.map((row) => [row.product_id, copyDailyQuantities(row)]));
+    originalQuantities.value = Object.fromEntries(props.report.rows.map((row) => [rowKey(row), copyDailyQuantities(row)]));
+    draftQuantities.value = Object.fromEntries(props.report.rows.map((row) => [rowKey(row), copyDailyQuantities(row)]));
     clientError.value = '';
     form.clearErrors();
 };
@@ -103,12 +105,12 @@ watch(
 );
 
 const isDirty = (productId) =>
-    props.report.days.some(
-        (day) => Number(draftQuantities.value[productId]?.[day.date] || 0) !== Number(originalQuantities.value[productId]?.[day.date] || 0)
-    );
+    props.report.days.some((day) => Number(draftQuantities.value[productId]?.[day.date] || 0) !== Number(originalQuantities.value[productId]?.[day.date] || 0));
 
-const dirtyProductIds = computed(() => props.report.rows.filter((row) => isDirty(row.product_id)).map((row) => row.product_id));
-const dirtyCount = computed(() => dirtyProductIds.value.length);
+const isRowDirty = (row) => isDirty(rowKey(row));
+
+const dirtyEntryKeys = computed(() => props.report.rows.filter((row) => isRowDirty(row)).map((row) => rowKey(row)));
+const dirtyCount = computed(() => dirtyEntryKeys.value.length);
 const hasLocalUnsavedChanges = computed(() => dirtyCount.value > 0 || editingCostProductId.value !== null);
 
 const visibleRows = computed(() => {
@@ -121,7 +123,7 @@ const visibleRows = computed(() => {
             stockFilter.value === 'all' ||
             (stockFilter.value === 'replenish' && row.is_low_stock) ||
             (stockFilter.value === 'healthy' && !row.is_low_stock);
-        const matchesChanged = !changedOnly.value || isDirty(row.product_id);
+        const matchesChanged = !changedOnly.value || isRowDirty(row);
 
         return matchesSearch && matchesStock && matchesChanged;
     });
@@ -285,26 +287,28 @@ const setExpanded = (productId, expanded) => {
     expandedIds.value = next;
 };
 
-const registerInput = (productId, date, element) => {
-    const key = `${productId}:${date}`;
+const registerInput = (entryKey, date, element) => {
+    const key = `${entryKey}:${date}`;
     if (element) inputRefs[key] = element;
     else delete inputRefs[key];
 };
 
-const focusInput = async (productId, dayIndex = 0) => {
-    setExpanded(productId, true);
+const focusInput = async (row, dayIndex = 0) => {
+    const entryKey = rowKey(row);
+    setExpanded(entryKey, true);
     await nextTick();
     const date = props.report.days[dayIndex]?.date;
-    const input = inputRefs[`${productId}:${date}`];
+    const input = inputRefs[`${entryKey}:${date}`];
     input?.focus();
     input?.select();
 };
 
 const toggleRow = (row) => {
-    if (expandedIds.value.has(row.product_id)) {
-        setExpanded(row.product_id, false);
+    const entryKey = rowKey(row);
+    if (expandedIds.value.has(entryKey)) {
+        setExpanded(entryKey, false);
     } else {
-        focusInput(row.product_id);
+        focusInput(row);
     }
 };
 
@@ -362,24 +366,25 @@ const saveCostEdits = (row) => {
     });
 };
 
-const updateQuantity = (productId, date, event) => {
+const updateQuantity = (row, date, event) => {
     const rawValue = event.target.value;
-    draftQuantities.value[productId][date] = rawValue === ''
+    draftQuantities.value[rowKey(row)][date] = rawValue === ''
         ? ''
         : Math.max(0, Math.floor(Number(rawValue) || 0));
     clientError.value = '';
 };
 
-const normalizeQuantity = (productId, date) => {
-    const value = Number(draftQuantities.value[productId][date]);
-    draftQuantities.value[productId][date] = Number.isInteger(value) && value >= 0 ? value : 0;
+const normalizeQuantity = (row, date) => {
+    const key = rowKey(row);
+    const value = Number(draftQuantities.value[key][date]);
+    draftQuantities.value[key][date] = Number.isInteger(value) && value >= 0 ? value : 0;
 };
 
 const weeklyTotal = (row) =>
-    props.report.days.reduce((total, day) => total + Number(draftQuantities.value[row.product_id]?.[day.date] || 0), 0);
+    props.report.days.reduce((total, day) => total + Number(draftQuantities.value[rowKey(row)]?.[day.date] || 0), 0);
 
 const originalWeeklyTotal = (row) =>
-    props.report.days.reduce((total, day) => total + Number(originalQuantities.value[row.product_id]?.[day.date] || 0), 0);
+    props.report.days.reduce((total, day) => total + Number(originalQuantities.value[rowKey(row)]?.[day.date] || 0), 0);
 
 const inventoryDelta = (row) => weeklyTotal(row) - originalWeeklyTotal(row);
 
@@ -400,22 +405,22 @@ const handlePaste = (event, row, dayIndex) => {
     }
 
     props.report.days.forEach((day, index) => {
-        draftQuantities.value[row.product_id][day.date] = Number(values[index]);
+        draftQuantities.value[rowKey(row)][day.date] = Number(values[index]);
     });
     clientError.value = '';
 };
 
 const handleEnter = (row, dayIndex) => {
-    const rowIndex = visibleRows.value.findIndex((candidate) => candidate.product_id === row.product_id);
+    const rowIndex = visibleRows.value.findIndex((candidate) => rowKey(candidate) === rowKey(row));
     const nextRow = visibleRows.value[rowIndex + 1];
-    if (nextRow) focusInput(nextRow.product_id, dayIndex);
+    if (nextRow) focusInput(nextRow, dayIndex);
 };
 
 const discardChanges = () => {
     draftQuantities.value = Object.fromEntries(
         props.report.rows.map((row) => [
-            row.product_id,
-            Object.fromEntries(props.report.days.map((day) => [day.date, Number(originalQuantities.value[row.product_id]?.[day.date] ?? 0)])),
+            rowKey(row),
+            Object.fromEntries(props.report.days.map((day) => [day.date, Number(originalQuantities.value[rowKey(row)]?.[day.date] ?? 0)])),
         ])
     );
     clientError.value = '';
@@ -436,8 +441,8 @@ const focusFirstError = async () => {
         if (dateMatch) dayIndex = Math.max(0, props.report.days.findIndex((day) => day.date === dateMatch[1]));
     }
 
-    row ||= props.report.rows.find((candidate) => isDirty(candidate.product_id));
-    if (row) await focusInput(row.product_id, dayIndex);
+    row ||= props.report.rows.find((candidate) => isRowDirty(candidate));
+    if (row) await focusInput(row, dayIndex);
 };
 
 const saveWeek = () => {
@@ -446,12 +451,16 @@ const saveWeek = () => {
     form.week_start = props.report.week_start;
     form.sales = props.report.rows
         .filter((row) => row.is_entry_supported)
-        .map((row) => ({
-            product_id: row.product_id,
-            daily_quantities: Object.fromEntries(
-                props.report.days.map((day) => [day.date, Number(draftQuantities.value[row.product_id]?.[day.date] || 0)])
-            ),
-        }));
+        .map((row) => {
+            const payload = {
+                product_id: row.product_id,
+                daily_quantities: Object.fromEntries(
+                    props.report.days.map((day) => [day.date, Number(draftQuantities.value[rowKey(row)]?.[day.date] || 0)])
+                ),
+            };
+            if (row.variant_id) payload.product_variant_id = row.variant_id;
+            return payload;
+        });
 
     allowNavigation.value = true;
     form.post(route('weekly-sales.store'), {
@@ -468,7 +477,7 @@ const saveWeek = () => {
 };
 
 const rowError = (row) => {
-    const index = props.report.rows.findIndex((candidate) => candidate.product_id === row.product_id);
+    const index = props.report.rows.findIndex((candidate) => rowKey(candidate) === rowKey(row));
     return Object.entries(form.errors).find(
         ([key, message]) => key.startsWith(`sales.${index}.`) || String(message).includes(row.sku)
     )?.[1];
@@ -780,17 +789,17 @@ const editableCostClass = 'rounded-md px-2 py-1 tabular-nums transition-colors h
                         </tr>
                     </thead>
                     <tbody>
-                        <template v-for="row in visibleRows" :key="row.product_id">
+                        <template v-for="row in visibleRows" :key="rowKey(row)">
                             <tr
                                 :class="[
                                     'group transition-colors hover:bg-surface-overlay',
-                                    isDirty(row.product_id) ? 'bg-brand-soft' : 'bg-surface-raised',
+                                    isRowDirty(row) ? 'bg-brand-soft' : 'bg-surface-raised',
                                 ]"
                             >
                                 <td
                                     :class="[
                                         'sticky left-0 z-10 border-b border-r border-border-subtle px-3 py-3',
-                                        isDirty(row.product_id) ? 'bg-brand-soft' : 'bg-surface-raised group-hover:bg-surface-overlay',
+                                        isRowDirty(row) ? 'bg-brand-soft' : 'bg-surface-raised group-hover:bg-surface-overlay',
                                     ]"
                                 >
                                     <div class="flex items-start justify-between gap-3">
@@ -798,7 +807,7 @@ const editableCostClass = 'rounded-md px-2 py-1 tabular-nums transition-colors h
                                             <div class="flex flex-wrap items-center gap-1.5">
                                                 <p class="truncate font-medium text-text-primary">{{ row.name }}</p>
                                                 <Badge v-if="row.type === 'kit'" variant="info" size="sm">{{ t('products.create.kit') }}</Badge>
-                                                <Badge v-if="isDirty(row.product_id)" variant="warning" size="sm" dot>{{ t('weeklySales.unsaved') }}</Badge>
+                                                <Badge v-if="isRowDirty(row)" variant="warning" size="sm" dot>{{ t('weeklySales.unsaved') }}</Badge>
                                                 <Badge v-if="isEditingCosts(row)" variant="info" size="sm">{{ t('weeklySales.editingCosts') }}</Badge>
                                             </div>
                                             <p class="mt-1 truncate font-mono text-[11px] text-text-tertiary">{{ row.sku || '—' }}</p>
@@ -870,7 +879,7 @@ const editableCostClass = 'rounded-md px-2 py-1 tabular-nums transition-colors h
                                             :disabled="!row.is_entry_supported"
                                             @click="toggleRow(row)"
                                         >
-                                            <component :is="expandedIds.has(row.product_id) ? ChevronUp : ChevronDown" :size="13" />
+                                            <component :is="expandedIds.has(rowKey(row)) ? ChevronUp : ChevronDown" :size="13" />
                                             {{ canSave ? t('weeklySales.enterSales') : t('weeklySales.viewSales') }}
                                         </Button>
                                         <button
@@ -885,7 +894,7 @@ const editableCostClass = 'rounded-md px-2 py-1 tabular-nums transition-colors h
                                     </template>
                                 </td>
                             </tr>
-                            <tr v-if="expandedIds.has(row.product_id)" class="bg-surface-canvas">
+                            <tr v-if="expandedIds.has(rowKey(row))" class="bg-surface-canvas">
                                 <td colspan="15" class="border-b border-border-subtle px-4 py-4">
                                     <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                                         <div class="min-w-0 flex-1">
@@ -911,16 +920,16 @@ const editableCostClass = 'rounded-md px-2 py-1 tabular-nums transition-colors h
                                                         <span class="text-[10px] text-text-tertiary">{{ formatDate(day.date) }}</span>
                                                     </span>
                                                     <input
-                                                        :ref="(element) => registerInput(row.product_id, day.date, element)"
-                                                        :value="draftQuantities[row.product_id][day.date]"
+                                                        :ref="(element) => registerInput(rowKey(row), day.date, element)"
+                                                        :value="draftQuantities[rowKey(row)][day.date]"
                                                         :disabled="!canSave"
                                                         type="number"
                                                         min="0"
                                                         step="1"
                                                         inputmode="numeric"
                                                         class="mt-2 h-10 w-full rounded-md border border-border-strong bg-surface-canvas px-2 text-center text-base font-semibold tabular-nums text-text-primary ds-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
-                                                        @input="updateQuantity(row.product_id, day.date, $event)"
-                                                        @blur="normalizeQuantity(row.product_id, day.date)"
+                                                        @input="updateQuantity(row, day.date, $event)"
+                                                        @blur="normalizeQuantity(row, day.date)"
                                                         @focus="selectValue"
                                                         @paste="handlePaste($event, row, dayIndex)"
                                                         @keydown.enter.prevent="handleEnter(row, dayIndex)"

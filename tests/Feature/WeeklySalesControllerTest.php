@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\Models\Auth\Organization;
 use App\Models\Inventory\Product;
+use App\Models\Inventory\ProductVariant;
 use App\Models\Order\Order;
 use App\Models\Role;
 use App\Models\Setting;
@@ -44,6 +45,30 @@ class WeeklySalesControllerTest extends TestCase
         );
     }
 
+    public function test_weekly_sales_page_lists_product_variants_as_separate_entry_rows(): void
+    {
+        $organization = $this->organization('Weekly Variant Page Org');
+        $user = $this->user($organization, ['view_orders']);
+        $product = $this->product($organization, 'VARIANT-PARENT', stock: 50);
+        $product->updateQuietly(['has_variants' => true]);
+        $red = $this->variant($product, 'VARIANT-RED', 'Red');
+        $blue = $this->variant($product, 'VARIANT-BLUE', 'Blue');
+
+        $response = $this->actingAs($user)->get('/weekly-sales?week_start=2026-06-01');
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->component('WeeklySales/Index')
+            ->has('report.rows', 2)
+            ->where('report.rows.0.product_id', $product->id)
+            ->where('report.rows.0.variant_id', $blue->id)
+            ->where('report.rows.0.entry_key', "v:{$blue->id}")
+            ->where('report.rows.1.product_id', $product->id)
+            ->where('report.rows.1.variant_id', $red->id)
+            ->where('report.rows.1.entry_key', "v:{$red->id}")
+        );
+    }
+
     public function test_user_without_view_orders_cannot_open_weekly_sales_page(): void
     {
         $organization = $this->organization('No View Org');
@@ -64,6 +89,38 @@ class WeeklySalesControllerTest extends TestCase
         $response->assertSessionHas('success');
         $this->assertSame(8, (int) $product->fresh()->stock);
         $this->assertSame(1, Order::where('source', 'tiktok_us_manual')->count());
+    }
+
+    public function test_user_can_save_sales_for_variants_that_share_parent_stock(): void
+    {
+        $organization = $this->organization('Weekly Variant Save Org');
+        $user = $this->user($organization, ['create_orders']);
+        $product = $this->product($organization, 'VARIANT-SAVE', stock: 10);
+        $product->updateQuietly(['has_variants' => true]);
+        $small = $this->variant($product, 'VARIANT-SMALL', 'Small');
+        $large = $this->variant($product, 'VARIANT-LARGE', 'Large');
+
+        $response = $this->actingAs($user)->post('/weekly-sales', [
+            'week_start' => '2026-06-01',
+            'sales' => [
+                $this->payloadRow($product, variant: $small, monday: 2),
+                $this->payloadRow($product, variant: $large, monday: 3),
+            ],
+        ]);
+
+        $response->assertRedirect('/weekly-sales?week_start=2026-06-01');
+        $response->assertSessionHas('success');
+        $this->assertSame(5, (int) $product->fresh()->stock);
+        $this->assertSame(
+            ['VARIANT-LARGE' => 3, 'VARIANT-SMALL' => 2],
+            Order::where('external_id', 'tiktok-us-sales:2026-06-01')
+                ->firstOrFail()
+                ->items()
+                ->orderBy('sku')
+                ->pluck('quantity', 'sku')
+                ->map(fn ($quantity): int => (int) $quantity)
+                ->all()
+        );
     }
 
     public function test_user_without_create_orders_cannot_save_weekly_sales(): void
@@ -89,6 +146,8 @@ class WeeklySalesControllerTest extends TestCase
         $nonSellable = $this->product($organization, 'NON-SELLABLE', isSellable: false);
         $variantTracked = $this->product($organization, 'VARIANT-TRACKED');
         $variantTracked->updateQuietly(['has_variants' => true]);
+        $validVariant = $this->variant($variantTracked, 'VALID-VARIANT', 'Valid');
+        $foreignVariant = $this->variant($foreign, 'FOREIGN-VARIANT', 'Foreign');
 
         $this->actingAs($user)
             ->post('/weekly-sales', $this->payload($product, weekStart: '2026-06-02'))
@@ -110,7 +169,24 @@ class WeeklySalesControllerTest extends TestCase
 
         $this->actingAs($user)
             ->post('/weekly-sales', $this->payload($variantTracked))
-            ->assertSessionHasErrors('sales.0.product_id');
+            ->assertSessionHasErrors('sales.0.product_variant_id');
+
+        $wrongVariant = $this->payload($variantTracked);
+        $wrongVariant['sales'][0]['product_variant_id'] = $foreignVariant->id;
+        $this->actingAs($user)
+            ->post('/weekly-sales', $wrongVariant)
+            ->assertSessionHasErrors('sales.0.product_variant_id');
+
+        $duplicateVariant = [
+            'week_start' => '2026-06-01',
+            'sales' => [
+                $this->payloadRow($variantTracked, variant: $validVariant, monday: 1),
+                $this->payloadRow($variantTracked, variant: $validVariant, monday: 2),
+            ],
+        ];
+        $this->actingAs($user)
+            ->post('/weekly-sales', $duplicateVariant)
+            ->assertSessionHasErrors('sales.1.product_variant_id');
     }
 
     public function test_user_with_edit_products_can_update_weekly_sales_costs_from_usd_inputs(): void
@@ -230,6 +306,20 @@ class WeeklySalesControllerTest extends TestCase
         ]);
     }
 
+    private function variant(Product $product, string $sku, string $title): ProductVariant
+    {
+        return ProductVariant::create([
+            'organization_id' => $product->organization_id,
+            'product_id' => $product->id,
+            'sku' => $sku,
+            'title' => $title,
+            'option_values' => ['Option' => $title],
+            'stock' => 0,
+            'min_stock' => 0,
+            'is_active' => true,
+        ]);
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -237,18 +327,27 @@ class WeeklySalesControllerTest extends TestCase
     {
         return [
             'week_start' => $weekStart,
-            'sales' => [[
-                'product_id' => $product->id,
-                'daily_quantities' => [
-                    '2026-06-01' => 2,
-                    '2026-06-02' => 0,
-                    '2026-06-03' => 0,
-                    '2026-06-04' => 0,
-                    '2026-06-05' => 0,
-                    '2026-06-06' => 0,
-                    '2026-06-07' => 0,
-                ],
-            ]],
+            'sales' => [$this->payloadRow($product)],
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function payloadRow(Product $product, ?ProductVariant $variant = null, int $monday = 2): array
+    {
+        return array_filter([
+            'product_id' => $product->id,
+            'product_variant_id' => $variant?->id,
+            'daily_quantities' => [
+                '2026-06-01' => $monday,
+                '2026-06-02' => 0,
+                '2026-06-03' => 0,
+                '2026-06-04' => 0,
+                '2026-06-05' => 0,
+                '2026-06-06' => 0,
+                '2026-06-07' => 0,
+            ],
+        ], fn ($value): bool => $value !== null);
     }
 }

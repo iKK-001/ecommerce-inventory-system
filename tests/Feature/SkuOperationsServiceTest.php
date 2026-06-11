@@ -7,6 +7,7 @@ namespace Tests\Feature;
 use App\Models\Auth\Organization;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\ProductComponent;
+use App\Models\Inventory\ProductVariant;
 use App\Models\Inventory\Supplier;
 use App\Models\Order\Order;
 use App\Models\Order\OrderItem;
@@ -66,6 +67,49 @@ class SkuOperationsServiceTest extends TestCase
         $this->assertEqualsWithDelta(8.0, $row['unit_total_cost_usd'], 0.0001);
         $this->assertEqualsWithDelta(12.0, $row['gross_profit_usd'], 0.0001);
         $this->assertEqualsWithDelta(60.0, $row['gross_margin_percent'], 0.0001);
+    }
+
+    public function test_report_expands_active_variants_into_separate_sales_entry_rows_with_shared_stock(): void
+    {
+        Carbon::setTestNow('2026-06-08 12:00:00');
+        $organization = $this->organization('Variant Operations Org');
+        $product = $this->product($organization, [
+            'sku' => 'PUZZLE',
+            'name' => 'Puzzle',
+            'stock' => 25,
+            'has_variants' => true,
+            'selling_price' => 10,
+        ]);
+        $small = $this->variant($product, 'PUZZLE-S', 'Small', price: 11);
+        $large = $this->variant($product, 'PUZZLE-L', 'Large', price: 12);
+        $this->variant($product, 'PUZZLE-HIDDEN', 'Hidden', active: false);
+        $this->sale($organization, $product, 2, '2026-06-01', 'tiktok_us_manual', variant: $small);
+        $this->sale($organization, $product, 3, '2026-06-02', 'tiktok_us_manual', variant: $large);
+
+        $report = app(SkuOperationsService::class)->report(
+            $organization->id,
+            CarbonImmutable::parse('2026-06-01')
+        );
+
+        $this->assertSame(
+            ["v:{$large->id}", "v:{$small->id}"],
+            collect($report['rows'])->pluck('entry_key')->all()
+        );
+
+        $largeRow = collect($report['rows'])->firstWhere('variant_id', $large->id);
+        $smallRow = collect($report['rows'])->firstWhere('variant_id', $small->id);
+
+        $this->assertSame($product->id, $largeRow['product_id']);
+        $this->assertSame('PUZZLE-L', $largeRow['sku']);
+        $this->assertSame('Puzzle - Large', $largeRow['name']);
+        $this->assertTrue($largeRow['is_entry_supported']);
+        $this->assertSame(25, $largeRow['warehouse_stock']);
+        $this->assertEqualsWithDelta(12.0, $largeRow['selling_price_usd'], 0.0001);
+        $this->assertSame(3, $largeRow['daily_quantities']['2026-06-02']);
+
+        $this->assertSame(2, $smallRow['daily_quantities']['2026-06-01']);
+        $this->assertSame(5, $report['summary']['units_sold']);
+        $this->assertEqualsWithDelta(58.0, $report['summary']['estimated_revenue_usd'], 0.0001);
     }
 
     public function test_report_splits_domestic_first_leg_last_mile_and_packing_costs(): void
@@ -234,6 +278,26 @@ class SkuOperationsServiceTest extends TestCase
         ], $attributes));
     }
 
+    private function variant(
+        Product $product,
+        string $sku,
+        string $title,
+        ?int $price = null,
+        bool $active = true
+    ): ProductVariant {
+        return ProductVariant::create([
+            'organization_id' => $product->organization_id,
+            'product_id' => $product->id,
+            'sku' => $sku,
+            'title' => $title,
+            'option_values' => ['Size' => $title],
+            'price' => $price,
+            'stock' => 0,
+            'min_stock' => 0,
+            'is_active' => $active,
+        ]);
+    }
+
     private function inbound(
         Organization $organization,
         Supplier $supplier,
@@ -276,7 +340,8 @@ class SkuOperationsServiceTest extends TestCase
         int $quantity,
         string $date,
         string $source,
-        string $status = 'delivered'
+        string $status = 'delivered',
+        ?ProductVariant $variant = null
     ): void {
         $order = Order::create([
             'organization_id' => $organization->id,
@@ -295,13 +360,14 @@ class SkuOperationsServiceTest extends TestCase
         OrderItem::create([
             'order_id' => $order->id,
             'product_id' => $product->id,
+            'product_variant_id' => $variant?->id,
             'product_name' => $product->name,
-            'sku' => $product->sku,
+            'sku' => $variant?->sku ?? $product->sku,
             'quantity' => $quantity,
-            'unit_price' => $product->selling_price,
-            'subtotal' => $product->selling_price * $quantity,
+            'unit_price' => $variant?->price ?? $product->selling_price,
+            'subtotal' => ($variant?->price ?? $product->selling_price) * $quantity,
             'tax' => 0,
-            'total' => $product->selling_price * $quantity,
+            'total' => ($variant?->price ?? $product->selling_price) * $quantity,
         ]);
     }
 }

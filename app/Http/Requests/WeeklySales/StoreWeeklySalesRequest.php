@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\WeeklySales;
 
+use App\Models\Inventory\Product;
+use App\Models\Inventory\ProductVariant;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -25,12 +27,17 @@ final class StoreWeeklySalesRequest extends FormRequest
             'sales.*.product_id' => [
                 'required',
                 'integer',
-                'distinct',
                 Rule::exists('products', 'id')->where(fn ($query) => $query
                     ->where('organization_id', $organizationId)
                     ->where('is_active', true)
-                    ->where('is_sellable', true)
-                    ->where('has_variants', false)),
+                    ->where('is_sellable', true)),
+            ],
+            'sales.*.product_variant_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('product_variants', 'id')->where(fn ($query) => $query
+                    ->where('organization_id', $organizationId)
+                    ->where('is_active', true)),
             ],
             'sales.*.daily_quantities' => ['required', 'array', 'size:7'],
             'sales.*.daily_quantities.*' => ['required', 'integer', 'min:0'],
@@ -73,6 +80,96 @@ final class StoreWeeklySalesRequest extends FormRequest
                     );
                 }
             }
+
+            $this->validateProductVariantRows($validator);
         });
+    }
+
+    private function validateProductVariantRows(Validator $validator): void
+    {
+        $organizationId = $this->user()->organization_id;
+        $rows = $this->input('sales', []);
+        if (! is_array($rows)) {
+            return;
+        }
+
+        $productIds = collect($rows)
+            ->pluck('product_id')
+            ->filter(fn ($productId): bool => filter_var($productId, FILTER_VALIDATE_INT) !== false)
+            ->map(fn ($productId): int => (int) $productId)
+            ->unique()
+            ->values()
+            ->all();
+        $variantIds = collect($rows)
+            ->pluck('product_variant_id')
+            ->filter(fn ($variantId): bool => $variantId !== null && filter_var($variantId, FILTER_VALIDATE_INT) !== false)
+            ->map(fn ($variantId): int => (int) $variantId)
+            ->unique()
+            ->values()
+            ->all();
+
+        $products = Product::query()
+            ->where('organization_id', $organizationId)
+            ->whereIn('id', $productIds)
+            ->get()
+            ->keyBy('id');
+        $variants = ProductVariant::query()
+            ->where('organization_id', $organizationId)
+            ->whereIn('id', $variantIds)
+            ->get()
+            ->keyBy('id');
+
+        $seen = [];
+        foreach ($rows as $index => $row) {
+            $productId = (int) ($row['product_id'] ?? 0);
+            $variantId = array_key_exists('product_variant_id', $row) && $row['product_variant_id'] !== null
+                ? (int) $row['product_variant_id']
+                : null;
+            $product = $products->get($productId);
+
+            if (! $product) {
+                continue;
+            }
+
+            if ($product->has_variants) {
+                $variant = $variantId !== null ? $variants->get($variantId) : null;
+                if (! $variant) {
+                    $validator->errors()->add(
+                        "sales.{$index}.product_variant_id",
+                        'A variant is required for this product.'
+                    );
+
+                    continue;
+                }
+                if ($variant->product_id !== $product->id) {
+                    $validator->errors()->add(
+                        "sales.{$index}.product_variant_id",
+                        'The selected variant does not belong to this product.'
+                    );
+
+                    continue;
+                }
+            } elseif ($variantId !== null) {
+                $validator->errors()->add(
+                    "sales.{$index}.product_variant_id",
+                    'This product does not use variant sales entry.'
+                );
+
+                continue;
+            }
+
+            $entryKey = $variantId !== null ? "v:{$variantId}" : "p:{$productId}";
+            if (isset($seen[$entryKey])) {
+                $field = $variantId !== null ? 'product_variant_id' : 'product_id';
+                $validator->errors()->add(
+                    "sales.{$index}.{$field}",
+                    'Weekly sales rows must be unique per SKU or variant.'
+                );
+
+                continue;
+            }
+
+            $seen[$entryKey] = true;
+        }
     }
 }
