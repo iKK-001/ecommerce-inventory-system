@@ -203,6 +203,7 @@
       "variant": "变体",
       "price": "价格",
       "costInputHint": "变体成本按 USD / SKU 录入；保存后每周销量页面会优先使用该变体成本。",
+      "sharedStockHint": "所有变体共用父商品库存，不在这里单独维护变体库存。",
       "stock": "库存",
       "autoGenerate": "自动生成",
       "enableAll": "全部启用",
@@ -312,7 +313,7 @@
       "productImages": "产品图片",
       "productVariants": "产品变体",
       "variantHint": "添加尺寸或颜色等选项，以销售此产品的不同版本。每种组合都会创建一个具有独立价格和库存的变体。",
-      "variantStockHint": "启用变体后，库存将按变体分别跟踪。",
+      "variantStockHint": "当前业务按父商品共享库存；变体只用于区分 SKU、标题、售价和成本。",
       "notesPlaceholder": "关于此产品的补充说明...",
       "createProduct": "创建产品"
     },

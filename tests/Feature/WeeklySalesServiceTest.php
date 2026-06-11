@@ -116,6 +116,31 @@ class WeeklySalesServiceTest extends TestCase
         );
     }
 
+    public function test_new_weekly_sales_skip_soft_deleted_order_numbers(): void
+    {
+        $product = $this->product('RECREATE-CLEAR', 50);
+        $deletedOrder = Order::create([
+            'organization_id' => $this->organization->id,
+            'order_number' => Order::generateOrderNumber($this->organization->id),
+            'source' => 'manual',
+            'customer_name' => 'Deleted manual order',
+            'status' => 'pending',
+            'subtotal' => 0,
+            'tax' => 0,
+            'shipping' => 0,
+            'total' => 0,
+            'currency' => 'USD',
+            'order_date' => now(),
+        ]);
+        $deletedOrder->deleteQuietly();
+
+        $this->save([$this->row($product, ['2026-06-01' => 2])]);
+
+        $recreatedOrder = Order::where('external_id', 'tiktok-us-sales:2026-06-01')->firstOrFail();
+        $this->assertNotSame($deletedOrder->order_number, $recreatedOrder->order_number);
+        $this->assertSame(48, (int) $product->fresh()->stock);
+    }
+
     public function test_kit_overwrite_adjusts_shared_component_stock_by_the_difference(): void
     {
         $base = $this->product('BASE', 20);

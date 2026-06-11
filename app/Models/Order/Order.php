@@ -277,7 +277,7 @@ class Order extends Model
         $date = now()->format('Ymd');
 
         // Get the last order number for today, scoped by organization
-        $query = static::where('order_number', 'like', $prefix.$date.'%');
+        $query = static::withTrashed()->where('order_number', 'like', $prefix.$date.'%');
         if ($organizationId !== null) {
             $query->where('organization_id', $organizationId);
         }

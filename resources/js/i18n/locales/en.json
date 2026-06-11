@@ -203,6 +203,7 @@
       "variant": "Variant",
       "price": "Price",
       "costInputHint": "Variant costs are entered in USD per SKU. Weekly Sales will use these variant costs first after saving.",
+      "sharedStockHint": "All variants share the parent product stock; variant stock is not maintained here.",
       "stock": "Stock",
       "autoGenerate": "Auto-generate",
       "enableAll": "Enable All",
@@ -312,7 +313,7 @@
       "productImages": "Product Images",
       "productVariants": "Product Variants",
       "variantHint": "Add options like Size or Color to sell different versions of this product. Each combination creates a variant with its own price and stock.",
-      "variantStockHint": "Stock is tracked per variant when variants are enabled.",
+      "variantStockHint": "This workflow uses shared parent stock. Variants only separate SKU, title, price, and costs.",
       "notesPlaceholder": "Additional notes about this product...",
       "createProduct": "Create Product"
     },

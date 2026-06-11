@@ -364,12 +364,12 @@ const getEffectivePurchasePrice = (variant) => {
                 </h4>
             </div>
             <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
-                {{ t('products.variants.costInputHint') }}
+                {{ t('products.variants.costInputHint') }} {{ t('products.variants.sharedStockHint') }}
             </p>
 
             <!-- Variants Table -->
             <div class="overflow-x-auto">
-                <table class="min-w-[1280px] divide-y divide-gray-200 dark:divide-border-subtle">
+                <table class="min-w-[1180px] divide-y divide-gray-200 dark:divide-border-subtle">
                     <thead class="bg-gray-50 dark:bg-surface-canvas">
                         <tr>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
@@ -387,9 +387,6 @@ const getEffectivePurchasePrice = (variant) => {
                                 class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase"
                             >
                                 {{ t(field.label) }}
-                            </th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                                {{ t('products.variants.stock') }}
                             </th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                                 {{ t('common.active') }}
@@ -449,16 +446,6 @@ const getEffectivePurchasePrice = (variant) => {
                                         :disabled="disabled"
                                     />
                                 </div>
-                            </td>
-                            <td class="px-4 py-3">
-                                <input
-                                    :value="variant.stock"
-                                    @input="updateVariant(index, 'stock', parseInt($event.target.value) || 0)"
-                                    type="number"
-                                    min="0"
-                                    class="w-20 text-sm rounded-md bg-gray-50 dark:bg-surface-canvas border-gray-200 dark:border-border-subtle text-gray-900 dark:text-gray-100"
-                                    :disabled="disabled"
-                                />
                             </td>
                             <td class="px-4 py-3">
                                 <label class="relative inline-flex items-center cursor-pointer">
