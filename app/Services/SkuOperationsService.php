@@ -129,10 +129,9 @@ final class SkuOperationsService
                     )
                     : (int) ($inTransitByProduct[$product->id] ?? 0);
 
-                $variants = $product->has_variants
-                    ? $variantsByProduct->get($product->id, collect())
-                    : collect();
+                $variants = $variantsByProduct->get($product->id, collect());
                 $entries = $variants->isNotEmpty() ? $variants : collect([null]);
+                $hasVariantEntries = $variants->isNotEmpty();
 
                 return $entries->map(function (?ProductVariant $variant) use (
                     $product,
@@ -150,7 +149,8 @@ final class SkuOperationsService
                     $unitTotalCostUsd,
                     $components,
                     $inventoryProducts,
-                    $inTransitByProduct
+                    $inTransitByProduct,
+                    $hasVariantEntries
                 ): array {
                     $entryKey = $this->entryKey($product, $variant);
                     $sellingPriceUsd = round((float) ($variant?->price ?? $product->selling_price ?? $product->price ?? 0), 4);
@@ -181,7 +181,7 @@ final class SkuOperationsService
                         'parent_name' => $product->name,
                         'variant_title' => $variant?->title,
                         'type' => $product->type,
-                        'is_entry_supported' => ! $product->has_variants || $variant !== null,
+                        'is_entry_supported' => (! $hasVariantEntries && ! $product->has_variants) || $variant !== null,
                         'selling_price_usd' => $sellingPriceUsd,
                         'product_cost_usd' => $productCostUsd,
                         'domestic_logistics_cost_usd' => $domesticLogisticsCostUsd,

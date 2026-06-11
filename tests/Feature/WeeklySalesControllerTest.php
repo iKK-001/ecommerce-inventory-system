@@ -123,6 +123,25 @@ class WeeklySalesControllerTest extends TestCase
         );
     }
 
+    public function test_user_can_save_variant_sales_even_when_parent_variant_flag_is_stale(): void
+    {
+        $organization = $this->organization('Weekly Stale Variant Save Org');
+        $user = $this->user($organization, ['create_orders']);
+        $product = $this->product($organization, 'STALE-VARIANT-SAVE', stock: 10);
+        $product->updateQuietly(['has_variants' => false]);
+        $variant = $this->variant($product, 'STALE-VARIANT-ROW', 'Row');
+
+        $response = $this->actingAs($user)->post('/weekly-sales', [
+            'week_start' => '2026-06-01',
+            'sales' => [
+                $this->payloadRow($product, variant: $variant, monday: 4),
+            ],
+        ]);
+
+        $response->assertRedirect('/weekly-sales?week_start=2026-06-01');
+        $this->assertSame(6, (int) $product->fresh()->stock);
+    }
+
     public function test_user_without_create_orders_cannot_save_weekly_sales(): void
     {
         $organization = $this->organization('No Save Org');

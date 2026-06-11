@@ -112,6 +112,33 @@ class SkuOperationsServiceTest extends TestCase
         $this->assertEqualsWithDelta(58.0, $report['summary']['estimated_revenue_usd'], 0.0001);
     }
 
+    public function test_report_expands_variants_even_when_parent_flag_is_stale(): void
+    {
+        $organization = $this->organization('Stale Variant Flag Org');
+        $product = $this->product($organization, [
+            'sku' => 'STALE-PARENT',
+            'name' => 'Stale Parent',
+            'stock' => 12,
+            'has_variants' => false,
+        ]);
+        $first = $this->variant($product, 'STALE-FIRST', 'First');
+        $second = $this->variant($product, 'STALE-SECOND', 'Second');
+
+        $report = app(SkuOperationsService::class)->report(
+            $organization->id,
+            CarbonImmutable::parse('2026-06-01')
+        );
+
+        $this->assertSame(
+            ["v:{$first->id}", "v:{$second->id}"],
+            collect($report['rows'])->pluck('entry_key')->sort()->values()->all()
+        );
+        $this->assertSame(
+            ['STALE-FIRST', 'STALE-SECOND'],
+            collect($report['rows'])->pluck('sku')->sort()->values()->all()
+        );
+    }
+
     public function test_report_splits_domestic_first_leg_last_mile_and_packing_costs(): void
     {
         $organization = $this->organization('Cost Split Org');

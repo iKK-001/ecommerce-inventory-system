@@ -178,6 +178,13 @@ final class WeeklySalesService
             ->whereIn('id', array_keys($variantIds))
             ->get()
             ->keyBy('id');
+        $productIdsWithActiveVariants = ProductVariant::query()
+            ->where('organization_id', $organizationId)
+            ->where('is_active', true)
+            ->whereIn('product_id', array_keys($productIds))
+            ->pluck('product_id')
+            ->map(fn ($productId): int => (int) $productId)
+            ->flip();
 
         $submittedEntries = collect();
         foreach ($sales as $row) {
@@ -193,7 +200,9 @@ final class WeeklySalesService
                 );
             }
 
-            if ($product->has_variants) {
+            $usesVariants = $product->has_variants || $productIdsWithActiveVariants->has($product->id);
+
+            if ($usesVariants) {
                 $variant = $variantId !== null ? $variants->get($variantId) : null;
                 if (! $variant || $variant->product_id !== $product->id) {
                     throw new InvalidOrderItemException(

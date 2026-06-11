@@ -118,6 +118,13 @@ final class StoreWeeklySalesRequest extends FormRequest
             ->whereIn('id', $variantIds)
             ->get()
             ->keyBy('id');
+        $productIdsWithActiveVariants = ProductVariant::query()
+            ->where('organization_id', $organizationId)
+            ->where('is_active', true)
+            ->whereIn('product_id', $productIds)
+            ->pluck('product_id')
+            ->map(fn ($productId): int => (int) $productId)
+            ->flip();
 
         $seen = [];
         foreach ($rows as $index => $row) {
@@ -131,7 +138,9 @@ final class StoreWeeklySalesRequest extends FormRequest
                 continue;
             }
 
-            if ($product->has_variants) {
+            $usesVariants = $product->has_variants || $productIdsWithActiveVariants->has($product->id);
+
+            if ($usesVariants) {
                 $variant = $variantId !== null ? $variants->get($variantId) : null;
                 if (! $variant) {
                     $validator->errors()->add(
