@@ -11,7 +11,9 @@ use App\Models\ActivityLog;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\ProductCategory;
 use App\Models\Inventory\ProductLocation;
+use App\Models\Setting;
 use App\Services\ProductService;
+use App\Services\SkuOperationsService;
 use App\Support\PluginQueryGuard;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -141,6 +143,7 @@ class ProductController extends Controller
             'currencies' => $currencies,
             'defaultCurrency' => $defaultCurrency,
             'productTypes' => $productTypes,
+            'exchangeRateCnyPerUsd' => $this->exchangeRate($organizationId),
             'pluginComponents' => [
                 'header' => get_page_components('products.create', 'header'),
                 'beforeForm' => get_page_components('products.create', 'before-form'),
@@ -280,6 +283,7 @@ class ProductController extends Controller
             'currencies' => $currencies,
             'defaultCurrency' => $defaultCurrency,
             'productTypes' => $productTypes,
+            'exchangeRateCnyPerUsd' => $this->exchangeRate($organizationId),
             'pluginComponents' => [
                 'header' => get_page_components('products.edit', 'header'),
                 'beforeForm' => get_page_components('products.edit', 'before-form'),
@@ -318,6 +322,17 @@ class ProductController extends Controller
 
         return redirect()->route('products.index')
             ->with('success', 'Product updated successfully.');
+    }
+
+    private function exchangeRate(int $organizationId): float
+    {
+        $value = Setting::forOrganization($organizationId)
+            ->where('key', 'inventory.exchange_rate_cny_per_usd')
+            ->value('value');
+
+        $exchangeRate = (float) ($value ?? SkuOperationsService::DEFAULT_EXCHANGE_RATE_CNY_PER_USD);
+
+        return $exchangeRate > 0 ? $exchangeRate : SkuOperationsService::DEFAULT_EXCHANGE_RATE_CNY_PER_USD;
     }
 
     /**

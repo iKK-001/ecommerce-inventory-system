@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\ProductOption;
 use App\Models\Inventory\ProductVariant;
+use App\Models\Setting;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use InvalidArgumentException;
@@ -27,6 +28,14 @@ final class ProductService
         'packaging_cost_cny',
         'last_mile_cost_usd',
         'packing_labor_cost_cny',
+    ];
+
+    private const VARIANT_COST_FIELD_MAP = [
+        'product_cost_usd' => ['metadata_key' => 'unit_goods_cost_cny', 'currency' => 'CNY'],
+        'domestic_logistics_cost_usd' => ['metadata_key' => 'domestic_logistics_unit_cny', 'currency' => 'CNY'],
+        'packing_cost_usd' => ['metadata_key' => 'packing_cost_cny', 'currency' => 'CNY'],
+        'us_first_leg_cost_usd' => ['metadata_key' => 'first_leg_freight_unit_cny', 'currency' => 'CNY'],
+        'us_last_mile_cost_usd' => ['metadata_key' => 'last_mile_cost_usd', 'currency' => 'USD'],
     ];
 
     /**
@@ -222,8 +231,18 @@ final class ProductService
      * @param  array<string, mixed>  $variantData
      * @return array<string, mixed>
      */
-    private function variantPayload(Product $product, array $variantData, int $index): array
-    {
+    private function variantPayload(
+        Product $product,
+        array $variantData,
+        int $index,
+        ?ProductVariant $existingVariant = null
+    ): array {
+        [$metadata, $productCostCny] = $this->variantCostMetadata($product, $variantData, $existingVariant);
+        $purchasePrice = $variantData['purchase_price'] ?? null;
+        if ($productCostCny !== null) {
+            $purchasePrice = round($productCostCny, 2);
+        }
+
         return [
             'product_id' => $product->id,
             'organization_id' => $product->organization_id,
@@ -232,12 +251,80 @@ final class ProductService
             'title' => $variantData['title'] ?? implode(' / ', array_values($variantData['option_values'])),
             'option_values' => $variantData['option_values'],
             'price' => $variantData['price'] ?? null,
-            'purchase_price' => $variantData['purchase_price'] ?? null,
+            'purchase_price' => $purchasePrice,
             'stock' => $variantData['stock'] ?? 0,
             'min_stock' => $variantData['min_stock'] ?? 0,
             'is_active' => $variantData['is_active'] ?? true,
             'position' => $index,
+            'metadata' => $metadata,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $variantData
+     * @return array{0: array<string, mixed>|null, 1: float|null}
+     */
+    private function variantCostMetadata(
+        Product $product,
+        array $variantData,
+        ?ProductVariant $existingVariant = null
+    ): array {
+        $metadata = $existingVariant?->metadata ?? [];
+        $exchangeRate = $this->exchangeRate((int) $product->organization_id);
+        $hasCostInput = false;
+        $productCostCny = null;
+
+        foreach (self::VARIANT_COST_FIELD_MAP as $field => $config) {
+            if (! array_key_exists($field, $variantData)) {
+                continue;
+            }
+
+            $hasCostInput = true;
+            $metadataKey = $config['metadata_key'];
+            $value = $this->nullableFloat($variantData[$field]);
+
+            if ($value === null) {
+                unset($metadata[$metadataKey]);
+
+                continue;
+            }
+
+            $storedValue = $config['currency'] === 'CNY'
+                ? round($value * $exchangeRate, 4)
+                : round($value, 4);
+
+            $metadata[$metadataKey] = $storedValue;
+
+            if ($field === 'product_cost_usd') {
+                $productCostCny = $storedValue;
+            }
+        }
+
+        if ($hasCostInput) {
+            $metadata['weekly_sales_costs_updated_at'] = now()->toISOString();
+        }
+
+        return [$metadata === [] ? null : $metadata, $productCostCny];
+    }
+
+    private function nullableFloat(mixed $value): ?float
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return (float) $value;
+    }
+
+    private function exchangeRate(int $organizationId): float
+    {
+        $value = Setting::forOrganization($organizationId)
+            ->where('key', 'inventory.exchange_rate_cny_per_usd')
+            ->value('value');
+
+        $exchangeRate = (float) ($value ?? SkuOperationsService::DEFAULT_EXCHANGE_RATE_CNY_PER_USD);
+
+        return $exchangeRate > 0 ? $exchangeRate : SkuOperationsService::DEFAULT_EXCHANGE_RATE_CNY_PER_USD;
     }
 
     /**
@@ -285,15 +372,15 @@ final class ProductService
         $incomingVariantIds = [];
 
         foreach ($variants as $index => $variantData) {
-            $variantPayload = $this->variantPayload($product, $variantData, $index);
-
             if (! empty($variantData['id'])) {
                 $variant = ProductVariant::find($variantData['id']);
                 if ($variant && $variant->product_id === $product->id) {
+                    $variantPayload = $this->variantPayload($product, $variantData, $index, $variant);
                     $variant->update($variantPayload);
                     $incomingVariantIds[] = $variantData['id'];
                 }
             } else {
+                $variantPayload = $this->variantPayload($product, $variantData, $index);
                 $variant = ProductVariant::create($variantPayload);
                 $incomingVariantIds[] = $variant->id;
             }

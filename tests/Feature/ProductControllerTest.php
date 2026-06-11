@@ -6,7 +6,10 @@ use App\Models\Auth\Organization;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\ProductCategory;
 use App\Models\Inventory\ProductLocation;
+use App\Models\Inventory\ProductOption;
+use App\Models\Inventory\ProductVariant;
 use App\Models\Role;
+use App\Models\Setting;
 use App\Models\System\SystemSetting;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -366,6 +369,83 @@ class ProductControllerTest extends TestCase
         $this->assertSame('0.0000', (string) $product->last_mile_cost_usd);
     }
 
+    public function test_admin_can_create_product_variants_with_independent_weekly_sales_costs(): void
+    {
+        Setting::create([
+            'organization_id' => $this->organization->id,
+            'key' => 'inventory.exchange_rate_cny_per_usd',
+            'value' => '7.2',
+        ]);
+
+        $response = $this->actingAs($this->admin)
+            ->post(route('products.store'), [
+                'sku' => 'VARIANT-COST-PARENT',
+                'name' => 'Variant Cost Parent',
+                'price' => 11.99,
+                'currency' => 'USD',
+                'stock' => 50,
+                'min_stock' => 5,
+                'category_id' => $this->category->id,
+                'location_id' => $this->location->id,
+                'has_variants' => true,
+                'options' => [
+                    [
+                        'name' => '包装',
+                        'values' => ['一个装', '两个装'],
+                    ],
+                ],
+                'variants' => [
+                    [
+                        'option_values' => ['包装' => '一个装'],
+                        'title' => '一个装',
+                        'sku' => '1-BQBZ',
+                        'price' => 11.69,
+                        'stock' => 32,
+                        'min_stock' => 0,
+                        'is_active' => true,
+                        'product_cost_usd' => 0.49,
+                        'domestic_logistics_cost_usd' => 0.01,
+                        'packing_cost_usd' => 0.07,
+                        'us_first_leg_cost_usd' => 1.50,
+                        'us_last_mile_cost_usd' => 5.00,
+                    ],
+                    [
+                        'option_values' => ['包装' => '两个装'],
+                        'title' => '两个装',
+                        'sku' => '2-BQBZ',
+                        'price' => 17.09,
+                        'stock' => 14,
+                        'min_stock' => 0,
+                        'is_active' => true,
+                        'product_cost_usd' => 0.98,
+                        'domestic_logistics_cost_usd' => 0.02,
+                        'packing_cost_usd' => 0.14,
+                        'us_first_leg_cost_usd' => 1.50,
+                        'us_last_mile_cost_usd' => 5.00,
+                    ],
+                ],
+            ]);
+
+        $response->assertRedirect(route('products.index'));
+
+        $onePack = ProductVariant::where('sku', '1-BQBZ')->firstOrFail();
+        $twoPack = ProductVariant::where('sku', '2-BQBZ')->firstOrFail();
+
+        $this->assertSame(3.528, $onePack->metadata['unit_goods_cost_cny']);
+        $this->assertSame(0.072, $onePack->metadata['domestic_logistics_unit_cny']);
+        $this->assertSame(0.504, $onePack->metadata['packing_cost_cny']);
+        $this->assertSame(10.8, $onePack->metadata['first_leg_freight_unit_cny']);
+        $this->assertEqualsWithDelta(5.0, $onePack->metadata['last_mile_cost_usd'], 0.0001);
+        $this->assertSame('3.53', (string) $onePack->purchase_price);
+
+        $this->assertSame(7.056, $twoPack->metadata['unit_goods_cost_cny']);
+        $this->assertSame(0.144, $twoPack->metadata['domestic_logistics_unit_cny']);
+        $this->assertSame(1.008, $twoPack->metadata['packing_cost_cny']);
+        $this->assertSame(10.8, $twoPack->metadata['first_leg_freight_unit_cny']);
+        $this->assertEqualsWithDelta(5.0, $twoPack->metadata['last_mile_cost_usd'], 0.0001);
+        $this->assertSame('7.06', (string) $twoPack->purchase_price);
+    }
+
     public function test_member_can_create_product(): void
     {
         $productData = [
@@ -605,6 +685,120 @@ class ProductControllerTest extends TestCase
             'packing_labor_cost_cny' => 1.25,
             'last_mile_cost_usd' => 3.50,
         ]);
+    }
+
+    public function test_admin_can_update_product_variants_with_independent_weekly_sales_costs(): void
+    {
+        Setting::create([
+            'organization_id' => $this->organization->id,
+            'key' => 'inventory.exchange_rate_cny_per_usd',
+            'value' => '7.2',
+        ]);
+        $product = $this->createProduct([
+            'sku' => 'EDIT-VARIANT-COST-PARENT',
+            'name' => 'Edit Variant Cost Parent',
+            'price' => 11.99,
+            'stock' => 50,
+            'min_stock' => 5,
+            'has_variants' => true,
+        ]);
+        $option = ProductOption::create([
+            'product_id' => $product->id,
+            'name' => '包装',
+            'values' => ['一个装', '两个装'],
+            'position' => 0,
+        ]);
+        $onePack = ProductVariant::create([
+            'organization_id' => $this->organization->id,
+            'product_id' => $product->id,
+            'option_values' => ['包装' => '一个装'],
+            'title' => '一个装',
+            'sku' => 'EDIT-1-BQBZ',
+            'price' => 11.69,
+            'stock' => 32,
+            'min_stock' => 0,
+            'is_active' => true,
+        ]);
+        $twoPack = ProductVariant::create([
+            'organization_id' => $this->organization->id,
+            'product_id' => $product->id,
+            'option_values' => ['包装' => '两个装'],
+            'title' => '两个装',
+            'sku' => 'EDIT-2-BQBZ',
+            'price' => 17.09,
+            'stock' => 14,
+            'min_stock' => 0,
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($this->admin)
+            ->put(route('products.update', $product), [
+                'sku' => $product->sku,
+                'name' => $product->name,
+                'price' => 11.99,
+                'stock' => 50,
+                'min_stock' => 5,
+                'is_active' => true,
+                'has_variants' => true,
+                'options' => [
+                    [
+                        'id' => $option->id,
+                        'name' => '包装',
+                        'values' => ['一个装', '两个装'],
+                    ],
+                ],
+                'variants' => [
+                    [
+                        'id' => $onePack->id,
+                        'option_values' => ['包装' => '一个装'],
+                        'title' => '一个装',
+                        'sku' => 'EDIT-1-BQBZ',
+                        'price' => 11.69,
+                        'stock' => 32,
+                        'min_stock' => 0,
+                        'is_active' => true,
+                        'product_cost_usd' => 0.52,
+                        'domestic_logistics_cost_usd' => 0.03,
+                        'packing_cost_usd' => 0.08,
+                        'us_first_leg_cost_usd' => 1.50,
+                        'us_last_mile_cost_usd' => 5.00,
+                    ],
+                    [
+                        'id' => $twoPack->id,
+                        'option_values' => ['包装' => '两个装'],
+                        'title' => '两个装',
+                        'sku' => 'EDIT-2-BQBZ',
+                        'price' => 17.09,
+                        'stock' => 14,
+                        'min_stock' => 0,
+                        'is_active' => true,
+                        'product_cost_usd' => 1.04,
+                        'domestic_logistics_cost_usd' => 0.06,
+                        'packing_cost_usd' => 0.16,
+                        'us_first_leg_cost_usd' => 1.50,
+                        'us_last_mile_cost_usd' => 5.00,
+                    ],
+                ],
+            ]);
+
+        $response->assertRedirect(route('products.index'));
+
+        $onePack->refresh();
+        $twoPack->refresh();
+
+        $this->assertSame(3.744, $onePack->metadata['unit_goods_cost_cny']);
+        $this->assertSame(0.216, $onePack->metadata['domestic_logistics_unit_cny']);
+        $this->assertSame(0.576, $onePack->metadata['packing_cost_cny']);
+        $this->assertSame(10.8, $onePack->metadata['first_leg_freight_unit_cny']);
+        $this->assertEqualsWithDelta(5.0, $onePack->metadata['last_mile_cost_usd'], 0.0001);
+        $this->assertSame('3.74', (string) $onePack->purchase_price);
+
+        $this->assertSame(7.488, $twoPack->metadata['unit_goods_cost_cny']);
+        $this->assertSame(0.432, $twoPack->metadata['domestic_logistics_unit_cny']);
+        $this->assertSame(1.152, $twoPack->metadata['packing_cost_cny']);
+        $this->assertSame(10.8, $twoPack->metadata['first_leg_freight_unit_cny']);
+        $this->assertEqualsWithDelta(5.0, $twoPack->metadata['last_mile_cost_usd'], 0.0001);
+        $this->assertSame('7.49', (string) $twoPack->purchase_price);
     }
 
     public function test_member_can_update_product(): void

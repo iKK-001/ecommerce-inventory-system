@@ -202,6 +202,7 @@
       "variantsTitle": "变体（{count}）",
       "variant": "变体",
       "price": "价格",
+      "costInputHint": "变体成本按 USD / SKU 录入；保存后每周销量页面会优先使用该变体成本。",
       "stock": "库存",
       "autoGenerate": "自动生成",
       "enableAll": "全部启用",

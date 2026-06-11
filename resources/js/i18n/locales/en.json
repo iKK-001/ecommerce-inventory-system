@@ -202,6 +202,7 @@
       "variantsTitle": "Variants ({count})",
       "variant": "Variant",
       "price": "Price",
+      "costInputHint": "Variant costs are entered in USD per SKU. Weekly Sales will use these variant costs first after saving.",
       "stock": "Stock",
       "autoGenerate": "Auto-generate",
       "enableAll": "Enable All",

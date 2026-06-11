@@ -22,6 +22,10 @@ const props = defineProps({
     locations: Array,
     currencies: Object,
     defaultCurrency: String,
+    exchangeRateCnyPerUsd: {
+        type: [Number, String],
+        default: 7.2,
+    },
     pluginComponents: Object,
 });
 
@@ -530,6 +534,7 @@ const fieldError = 'mt-1 text-xs text-status-danger';
                                 @update:model-value="updateVariantData"
                                 :product-price="form.price"
                                 :product-purchase-price="form.purchase_price"
+                                :exchange-rate-cny-per-usd="exchangeRateCnyPerUsd"
                                 :currency-symbol="getCurrencySymbol(form.currency)"
                             />
                         </div>

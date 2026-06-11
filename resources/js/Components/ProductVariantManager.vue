@@ -15,6 +15,10 @@ const props = defineProps({
         type: [Number, String],
         default: 0
     },
+    exchangeRateCnyPerUsd: {
+        type: [Number, String],
+        default: 7.2
+    },
     currencySymbol: {
         type: String,
         default: '$'
@@ -40,6 +44,13 @@ const editingVariant = ref(null);
 // Max limits (Shopify-compatible)
 const MAX_OPTIONS = 3;
 const MAX_VARIANTS = 2048;
+const variantCostFields = [
+    { key: 'product_cost_usd', label: 'weeklySales.productCost' },
+    { key: 'domestic_logistics_cost_usd', label: 'weeklySales.domesticLogistics' },
+    { key: 'packing_cost_usd', label: 'weeklySales.packingCost' },
+    { key: 'us_first_leg_cost_usd', label: 'weeklySales.usFirstLeg' },
+    { key: 'us_last_mile_cost_usd', label: 'weeklySales.usLastMile' },
+];
 
 // Computed
 const canAddOption = computed(() => options.value.length < MAX_OPTIONS);
@@ -148,6 +159,11 @@ const generateVariants = () => {
             barcode: '',
             price: null,
             purchase_price: null,
+            product_cost_usd: null,
+            domestic_logistics_cost_usd: null,
+            packing_cost_usd: null,
+            us_first_leg_cost_usd: null,
+            us_last_mile_cost_usd: null,
             stock: 0,
             min_stock: 0,
             is_active: true,
@@ -179,6 +195,13 @@ const generateCombinations = (opts) => {
 const updateVariant = (index, field, value) => {
     variants.value[index][field] = value;
     emitUpdate();
+};
+
+const optionalDecimal = (value) => {
+    if (value === '') return null;
+    const parsed = Number(value);
+
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 };
 
 // Bulk update all variants
@@ -340,10 +363,13 @@ const getEffectivePurchasePrice = (variant) => {
                     {{ t('products.variants.variantsTitle', { count: variants.length }) }}
                 </h4>
             </div>
+            <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('products.variants.costInputHint') }}
+            </p>
 
             <!-- Variants Table -->
             <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200 dark:divide-border-subtle">
+                <table class="min-w-[1280px] divide-y divide-gray-200 dark:divide-border-subtle">
                     <thead class="bg-gray-50 dark:bg-surface-canvas">
                         <tr>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
@@ -354,6 +380,13 @@ const getEffectivePurchasePrice = (variant) => {
                             </th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                                 {{ t('products.variants.price') }}
+                            </th>
+                            <th
+                                v-for="field in variantCostFields"
+                                :key="field.key"
+                                class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase"
+                            >
+                                {{ t(field.label) }}
                             </th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                                 {{ t('products.variants.stock') }}
@@ -392,6 +425,27 @@ const getEffectivePurchasePrice = (variant) => {
                                         step="0.01"
                                         :placeholder="productPrice?.toString() || '0.00'"
                                         class="pl-6 w-full text-sm rounded-md bg-gray-50 dark:bg-surface-canvas border-gray-200 dark:border-border-subtle text-gray-900 dark:text-gray-100"
+                                        :disabled="disabled"
+                                    />
+                                </div>
+                            </td>
+                            <td
+                                v-for="field in variantCostFields"
+                                :key="field.key"
+                                class="px-4 py-3"
+                            >
+                                <div class="relative w-28">
+                                    <span class="absolute inset-y-0 left-0 pl-2 flex items-center text-gray-500 text-xs">
+                                        US$
+                                    </span>
+                                    <input
+                                        :value="variant[field.key]"
+                                        @input="updateVariant(index, field.key, optionalDecimal($event.target.value))"
+                                        type="number"
+                                        step="0.0001"
+                                        min="0"
+                                        placeholder="0.0000"
+                                        class="pl-8 w-full text-sm rounded-md bg-gray-50 dark:bg-surface-canvas border-gray-200 dark:border-border-subtle text-gray-900 dark:text-gray-100"
                                         :disabled="disabled"
                                     />
                                 </div>

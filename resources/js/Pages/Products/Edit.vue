@@ -23,8 +23,43 @@ const props = defineProps({
     locations: Array,
     currencies: Object,
     defaultCurrency: String,
+    exchangeRateCnyPerUsd: {
+        type: [Number, String],
+        default: 7.2,
+    },
     pluginComponents: Object,
 });
+
+const metadataNumber = (metadata, keys) => {
+    for (const key of keys) {
+        const value = metadata?.[key];
+        const parsed = optionalNumber(value);
+        if (parsed !== null) {
+            return parsed;
+        }
+    }
+
+    return null;
+};
+
+const optionalNumber = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = Number(value);
+
+    return Number.isFinite(parsed) ? parsed : null;
+};
+
+const metadataCnyToUsd = (metadata, keys) => {
+    const value = metadataNumber(metadata, keys);
+
+    return cnyToUsd(value);
+};
+
+const cnyToUsd = (value) => {
+    const exchangeRate = Number(props.exchangeRateCnyPerUsd || 7.2);
+
+    return value === null || exchangeRate <= 0 ? null : Number((value / exchangeRate).toFixed(4));
+};
 
 // Prepare existing options and variants for the variant manager
 const prepareExistingOptions = () => {
@@ -45,6 +80,11 @@ const prepareExistingVariants = () => {
         barcode: v.barcode || '',
         price: v.price,
         purchase_price: v.purchase_price,
+        product_cost_usd: metadataCnyToUsd(v.metadata, ['unit_goods_cost_cny', 'goods_unit_cost_cny']) ?? cnyToUsd(optionalNumber(v.purchase_price)),
+        domestic_logistics_cost_usd: metadataCnyToUsd(v.metadata, ['domestic_logistics_unit_cny', 'domestic_freight_unit_cny']),
+        packing_cost_usd: metadataCnyToUsd(v.metadata, ['packing_cost_cny', 'packaging_cost_cny']),
+        us_first_leg_cost_usd: metadataCnyToUsd(v.metadata, ['first_leg_freight_unit_cny', 'first_leg_unit_cost_cny', 'first_leg_unit_cny']),
+        us_last_mile_cost_usd: metadataNumber(v.metadata, ['last_mile_cost_usd', 'us_last_mile_cost_usd']),
         stock: v.stock || 0,
         min_stock: v.min_stock || 0,
         is_active: v.is_active ?? true,
@@ -111,6 +151,11 @@ const updateVariantData = (data) => {
         barcode: v.barcode,
         price: v.price,
         purchase_price: v.purchase_price,
+        product_cost_usd: v.product_cost_usd,
+        domestic_logistics_cost_usd: v.domestic_logistics_cost_usd,
+        packing_cost_usd: v.packing_cost_usd,
+        us_first_leg_cost_usd: v.us_first_leg_cost_usd,
+        us_last_mile_cost_usd: v.us_last_mile_cost_usd,
         stock: v.stock,
         min_stock: v.min_stock,
         is_active: v.is_active,
@@ -513,6 +558,7 @@ const fieldError = 'mt-1 text-xs text-status-danger';
                             @update:model-value="updateVariantData"
                             :product-price="form.price"
                             :product-purchase-price="form.purchase_price"
+                            :exchange-rate-cny-per-usd="exchangeRateCnyPerUsd"
                             :currency-symbol="getCurrencySymbol(product.currency || defaultCurrency)"
                         />
                     </div>
