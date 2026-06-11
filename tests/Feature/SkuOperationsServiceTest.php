@@ -180,6 +180,67 @@ class SkuOperationsServiceTest extends TestCase
         $this->assertEqualsWithDelta(45.0, $row['gross_margin_percent'], 0.0001);
     }
 
+    public function test_variant_rows_use_variant_cost_overrides_and_fall_back_to_parent_costs(): void
+    {
+        $organization = $this->organization('Variant Cost Override Org');
+        Setting::create([
+            'organization_id' => $organization->id,
+            'key' => 'inventory.exchange_rate_cny_per_usd',
+            'value' => '7.2',
+        ]);
+
+        $product = $this->product($organization, [
+            'sku' => 'VAR-COST',
+            'name' => 'Variant Cost Product',
+            'has_variants' => true,
+            'selling_price' => 20,
+            'weighted_average_cost_cny' => 57.6,
+            'packaging_cost_cny' => 3.6,
+            'packing_labor_cost_cny' => 3.6,
+            'last_mile_cost_usd' => 2,
+            'metadata' => [
+                'unit_goods_cost_cny' => 36,
+                'domestic_logistics_unit_cny' => 7.2,
+                'first_leg_freight_unit_cny' => 14.4,
+            ],
+        ]);
+        $override = $this->variant($product, 'VAR-COST-A', 'A', price: 15);
+        $fallback = $this->variant($product, 'VAR-COST-B', 'B', price: 16);
+        $override->updateQuietly([
+            'metadata' => [
+                'unit_goods_cost_cny' => 7.2,
+                'domestic_logistics_unit_cny' => 3.6,
+                'first_leg_freight_unit_cny' => 1.8,
+                'last_mile_cost_usd' => 1.75,
+                'packing_cost_cny' => 2.88,
+            ],
+        ]);
+
+        $report = app(SkuOperationsService::class)->report(
+            $organization->id,
+            CarbonImmutable::parse('2026-06-01')
+        );
+        $overrideRow = collect($report['rows'])->firstWhere('variant_id', $override->id);
+        $fallbackRow = collect($report['rows'])->firstWhere('variant_id', $fallback->id);
+
+        $this->assertNotNull($overrideRow);
+        $this->assertNotNull($fallbackRow);
+        $this->assertEqualsWithDelta(15.0, $overrideRow['selling_price_usd'], 0.0001);
+        $this->assertEqualsWithDelta(1.0, $overrideRow['product_cost_usd'], 0.0001);
+        $this->assertEqualsWithDelta(0.5, $overrideRow['domestic_logistics_cost_usd'], 0.0001);
+        $this->assertEqualsWithDelta(0.25, $overrideRow['us_first_leg_cost_usd'], 0.0001);
+        $this->assertEqualsWithDelta(1.75, $overrideRow['us_last_mile_cost_usd'], 0.0001);
+        $this->assertEqualsWithDelta(0.4, $overrideRow['packing_cost_usd'], 0.0001);
+        $this->assertEqualsWithDelta(3.9, $overrideRow['unit_total_cost_usd'], 0.0001);
+        $this->assertEqualsWithDelta(11.1, $overrideRow['gross_profit_usd'], 0.0001);
+
+        $this->assertEqualsWithDelta(5.0, $fallbackRow['product_cost_usd'], 0.0001);
+        $this->assertEqualsWithDelta(1.0, $fallbackRow['domestic_logistics_cost_usd'], 0.0001);
+        $this->assertEqualsWithDelta(2.0, $fallbackRow['us_first_leg_cost_usd'], 0.0001);
+        $this->assertEqualsWithDelta(2.0, $fallbackRow['us_last_mile_cost_usd'], 0.0001);
+        $this->assertEqualsWithDelta(1.0, $fallbackRow['packing_cost_usd'], 0.0001);
+    }
+
     public function test_kit_cost_stock_and_in_transit_use_all_components_and_the_limiting_quantity(): void
     {
         $organization = $this->organization('Kit Operations Org');

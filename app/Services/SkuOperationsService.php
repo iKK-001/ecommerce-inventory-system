@@ -105,14 +105,6 @@ final class SkuOperationsService
                     4
                 );
                 $usLastMileCostUsd = round((float) $product->last_mile_cost_usd, 4);
-                $unitTotalCostUsd = round(
-                    $productCostUsd
-                    + $domesticLogisticsCostUsd
-                    + $usFirstLegCostUsd
-                    + $usLastMileCostUsd
-                    + $packingCostUsd,
-                    4
-                );
 
                 $warehouseStock = $product->isKit()
                     ? $this->completeKitQuantity(
@@ -146,15 +138,51 @@ final class SkuOperationsService
                     $usFirstLegCostUsd,
                     $usLastMileCostUsd,
                     $packingCostUsd,
-                    $unitTotalCostUsd,
                     $components,
                     $inventoryProducts,
                     $inTransitByProduct,
-                    $hasVariantEntries
+                    $hasVariantEntries,
+                    $exchangeRate
                 ): array {
                     $entryKey = $this->entryKey($product, $variant);
                     $sellingPriceUsd = round((float) ($variant?->price ?? $product->selling_price ?? $product->price ?? 0), 4);
-                    $grossProfitUsd = round($sellingPriceUsd - $unitTotalCostUsd, 4);
+                    $entryProductCostUsd = $this->variantCostCnyToUsd(
+                        $variant,
+                        ['unit_goods_cost_cny', 'goods_unit_cost_cny'],
+                        $exchangeRate,
+                        $productCostUsd
+                    );
+                    $entryDomesticLogisticsCostUsd = $this->variantCostCnyToUsd(
+                        $variant,
+                        ['domestic_logistics_unit_cny', 'domestic_freight_unit_cny'],
+                        $exchangeRate,
+                        $domesticLogisticsCostUsd
+                    );
+                    $entryUsFirstLegCostUsd = $this->variantCostCnyToUsd(
+                        $variant,
+                        ['first_leg_freight_unit_cny', 'first_leg_unit_cost_cny', 'first_leg_unit_cny'],
+                        $exchangeRate,
+                        $usFirstLegCostUsd
+                    );
+                    $entryUsLastMileCostUsd = $this->variantMetadataUnitCostUsd(
+                        $variant,
+                        ['last_mile_cost_usd', 'us_last_mile_cost_usd']
+                    ) ?? $usLastMileCostUsd;
+                    $entryPackingCostUsd = $this->variantCostCnyToUsd(
+                        $variant,
+                        ['packing_cost_cny', 'packaging_cost_cny'],
+                        $exchangeRate,
+                        $packingCostUsd
+                    );
+                    $entryUnitTotalCostUsd = round(
+                        $entryProductCostUsd
+                        + $entryDomesticLogisticsCostUsd
+                        + $entryUsFirstLegCostUsd
+                        + $entryUsLastMileCostUsd
+                        + $entryPackingCostUsd,
+                        4
+                    );
+                    $grossProfitUsd = round($sellingPriceUsd - $entryUnitTotalCostUsd, 4);
                     $grossMarginPercent = $sellingPriceUsd > 0
                         ? round(($grossProfitUsd / $sellingPriceUsd) * 100, 2)
                         : null;
@@ -183,13 +211,13 @@ final class SkuOperationsService
                         'type' => $product->type,
                         'is_entry_supported' => (! $hasVariantEntries && ! $product->has_variants) || $variant !== null,
                         'selling_price_usd' => $sellingPriceUsd,
-                        'product_cost_usd' => $productCostUsd,
-                        'domestic_logistics_cost_usd' => $domesticLogisticsCostUsd,
-                        'us_first_leg_cost_usd' => $usFirstLegCostUsd,
-                        'us_last_mile_cost_usd' => $usLastMileCostUsd,
-                        'last_mile_cost_usd' => $usLastMileCostUsd,
-                        'packing_cost_usd' => $packingCostUsd,
-                        'unit_total_cost_usd' => $unitTotalCostUsd,
+                        'product_cost_usd' => $entryProductCostUsd,
+                        'domestic_logistics_cost_usd' => $entryDomesticLogisticsCostUsd,
+                        'us_first_leg_cost_usd' => $entryUsFirstLegCostUsd,
+                        'us_last_mile_cost_usd' => $entryUsLastMileCostUsd,
+                        'last_mile_cost_usd' => $entryUsLastMileCostUsd,
+                        'packing_cost_usd' => $entryPackingCostUsd,
+                        'unit_total_cost_usd' => $entryUnitTotalCostUsd,
                         'gross_profit_usd' => $grossProfitUsd,
                         'gross_margin_percent' => $grossMarginPercent,
                         'warehouse_stock' => $warehouseStock,
@@ -483,6 +511,45 @@ final class SkuOperationsService
         }
 
         return $fallback;
+    }
+
+    private function variantCostCnyToUsd(
+        ?ProductVariant $variant,
+        array $keys,
+        float $exchangeRate,
+        float $fallbackUsd
+    ): float {
+        $costCny = $this->variantMetadataUnitCostCny($variant, $keys);
+
+        return $costCny === null ? $fallbackUsd : round($costCny / $exchangeRate, 4);
+    }
+
+    private function variantMetadataUnitCostCny(?ProductVariant $variant, array $keys): ?float
+    {
+        return $this->variantMetadataUnitCost($variant, $keys);
+    }
+
+    private function variantMetadataUnitCostUsd(?ProductVariant $variant, array $keys): ?float
+    {
+        $value = $this->variantMetadataUnitCost($variant, $keys);
+
+        return $value === null ? null : round($value, 4);
+    }
+
+    private function variantMetadataUnitCost(?ProductVariant $variant, array $keys): ?float
+    {
+        if ($variant === null) {
+            return null;
+        }
+
+        $metadata = $variant->metadata ?? [];
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $metadata) && is_numeric($metadata[$key])) {
+                return (float) $metadata[$key];
+            }
+        }
+
+        return null;
     }
 
     /**

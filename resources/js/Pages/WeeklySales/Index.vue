@@ -55,7 +55,7 @@ const expandedIds = ref(new Set());
 const originalQuantities = ref({});
 const draftQuantities = ref({});
 const costDrafts = ref({});
-const editingCostProductId = ref(null);
+const editingCostEntryKey = ref(null);
 const clientError = ref('');
 const aiInstruction = ref('');
 const aiDraft = ref(null);
@@ -93,7 +93,7 @@ const copyCostDraft = (row) =>
     Object.fromEntries(costFields.map((field) => [field.key, Number(row[field.valueKey] ?? 0).toFixed(field.digits)]));
 
 const initializeCostDrafts = () => {
-    costDrafts.value = Object.fromEntries(props.report.rows.map((row) => [row.product_id, copyCostDraft(row)]));
+    costDrafts.value = Object.fromEntries(props.report.rows.map((row) => [rowKey(row), copyCostDraft(row)]));
     costForm.clearErrors();
 };
 
@@ -111,7 +111,7 @@ const isRowDirty = (row) => isDirty(rowKey(row));
 
 const dirtyEntryKeys = computed(() => props.report.rows.filter((row) => isRowDirty(row)).map((row) => rowKey(row)));
 const dirtyCount = computed(() => dirtyEntryKeys.value.length);
-const hasLocalUnsavedChanges = computed(() => dirtyCount.value > 0 || editingCostProductId.value !== null);
+const hasLocalUnsavedChanges = computed(() => dirtyCount.value > 0 || editingCostEntryKey.value !== null);
 
 const visibleRows = computed(() => {
     const query = search.value.trim().toLowerCase();
@@ -314,34 +314,34 @@ const toggleRow = (row) => {
 
 const selectValue = (event) => event.target.select();
 
-const isEditingCosts = (row) => editingCostProductId.value === row.product_id;
+const isEditingCosts = (row) => editingCostEntryKey.value === rowKey(row);
 
 const startCostEdit = (row) => {
     if (!props.canEditCosts || costForm.processing) return;
-    costDrafts.value[row.product_id] = copyCostDraft(row);
-    editingCostProductId.value = row.product_id;
+    costDrafts.value[rowKey(row)] = copyCostDraft(row);
+    editingCostEntryKey.value = rowKey(row);
     costForm.clearErrors();
 };
 
 const cancelCostEdit = (row) => {
-    costDrafts.value[row.product_id] = copyCostDraft(row);
-    if (editingCostProductId.value === row.product_id) editingCostProductId.value = null;
+    costDrafts.value[rowKey(row)] = copyCostDraft(row);
+    if (editingCostEntryKey.value === rowKey(row)) editingCostEntryKey.value = null;
     costForm.clearErrors();
 };
 
 const updateCostDraft = (row, key, event) => {
-    costDrafts.value[row.product_id][key] = event.target.value;
+    costDrafts.value[rowKey(row)][key] = event.target.value;
     costForm.clearErrors();
 };
 
 const normalizeCostDraft = (row, key) => {
     const field = costFields.find((candidate) => candidate.key === key);
-    const value = Number(costDrafts.value[row.product_id][key]);
+    const value = Number(costDrafts.value[rowKey(row)][key]);
     const digits = field?.digits ?? 2;
-    costDrafts.value[row.product_id][key] = Number.isFinite(value) && value >= 0 ? value.toFixed(digits) : Number(0).toFixed(digits);
+    costDrafts.value[rowKey(row)][key] = Number.isFinite(value) && value >= 0 ? value.toFixed(digits) : Number(0).toFixed(digits);
 };
 
-const costDraftValue = (row, key) => Number(costDrafts.value[row.product_id]?.[key] || 0);
+const costDraftValue = (row, key) => Number(costDrafts.value[rowKey(row)]?.[key] || 0);
 
 const saveCostEdits = (row) => {
     if (!props.canEditCosts || !isEditingCosts(row) || costForm.processing) return;
@@ -353,11 +353,15 @@ const saveCostEdits = (row) => {
     });
 
     allowNavigation.value = true;
-    costForm.put(route('weekly-sales.costs.update', row.product_id), {
+    const saveRoute = row.variant_id
+        ? route('weekly-sales.variant-costs.update', row.variant_id)
+        : route('weekly-sales.costs.update', row.product_id);
+
+    costForm.put(saveRoute, {
         preserveScroll: true,
         preserveState: true,
         onSuccess: () => {
-            editingCostProductId.value = null;
+            editingCostEntryKey.value = null;
             initializeCostDrafts();
         },
         onFinish: () => {
@@ -484,7 +488,7 @@ const rowError = (row) => {
 };
 
 const handleBeforeUnload = (event) => {
-    if (dirtyCount.value === 0 && editingCostProductId.value === null) return;
+    if (dirtyCount.value === 0 && editingCostEntryKey.value === null) return;
     event.preventDefault();
     event.returnValue = '';
 };
@@ -493,7 +497,7 @@ let removeBeforeListener;
 onMounted(() => {
     window.addEventListener('beforeunload', handleBeforeUnload);
     removeBeforeListener = router.on('before', (event) => {
-        if (!allowNavigation.value && (dirtyCount.value > 0 || editingCostProductId.value !== null) && !window.confirm(t('weeklySales.leaveWarning'))) {
+        if (!allowNavigation.value && (dirtyCount.value > 0 || editingCostEntryKey.value !== null) && !window.confirm(t('weeklySales.leaveWarning'))) {
             event.preventDefault();
         }
     });
@@ -824,7 +828,7 @@ const editableCostClass = 'rounded-md px-2 py-1 tabular-nums transition-colors h
                                 >
                                     <input
                                         v-if="isEditingCosts(row)"
-                                        :value="costDrafts[row.product_id]?.[field.key]"
+                                        :value="costDrafts[rowKey(row)]?.[field.key]"
                                         :aria-label="`${row.sku || row.name} ${t(field.label)}`"
                                         type="number"
                                         min="0"
